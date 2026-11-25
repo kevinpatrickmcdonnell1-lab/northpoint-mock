@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}{{ file }} p.{{ page }}{% endblock %}
+{% block content %}
+<p><a href="/case/{{ key }}">← back to {{ key }}</a></p>
+<h1>{{ file }} · page {{ page }}</h1>
+<section class="viewer">
+  <img src="/pages/{{ file }}/{{ page }}.png" alt="{{ file }} page {{ page }}">
+  <div>
+    {% if q %}
+      <h3>Cited quote</h3>
+      <blockquote>{{ q }}</blockquote>
+      {% if parts %}<p class="small st st-pass">Found on this page.</p>{% else %}<p class="small st st-blocked">Quote not found on this page text.</p>{% endif %}
+    {% endif %}
+    <h3>Page text</h3>
+    <pre class="pagetext">{% if parts %}{{ parts[0] }}<mark>{{ parts[1] }}</mark>{{ parts[2] }}{% else %}{{ text }}{% endif %}</pre>
+  </div>
+</section>
+{% endblock %}

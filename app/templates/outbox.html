@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Outbox{% endblock %}
+{% block content %}
+<h1>Outbox <span class="muted small">handoff stubs · MOCK · nothing leaves this machine</span></h1>
+
+<section class="simulate">
+  <h2>Simulate downstream failure <span class="sim-badge">SIMULATED – not a real interface</span></h2>
+  <p class="small">A receiving system that is down makes delivery attempts fail. After {{ max_attempts }} failed attempts a handoff is dead-lettered for the integration owner. The handoff itself is recorded once (idempotent) and is never re-gated or duplicated by a retry.</p>
+  <table class="small">
+    {% for r in receivers %}<tr><td>{{ r }}</td>
+      <td>{% if outages.get(r) %}<span class="st st-blocked">DOWN (simulated)</span>{% else %}<span class="st st-pass">up</span>{% endif %}</td>
+      <td><form method="post" action="/outbox/outage"><input type="hidden" name="receiving_system" value="{{ r }}"><input type="hidden" name="down" value="{{ 'false' if outages.get(r) else 'true' }}"><button class="secondary">{{ 'Restore' if outages.get(r) else 'Simulate outage' }}</button></form></td></tr>{% endfor %}
+  </table>
+  <form method="post" action="/outbox/retry" style="margin-top:8px"><button>Retry all pending / retrying</button></form>
+</section>
+
+<table>
+  <thead><tr><th>Handoff</th><th>Case</th><th>Work item</th><th>Receiving system</th><th>Delivery</th><th>Gates checked</th><th>Simulated deps</th><th>Idempotency key</th></tr></thead>
+  {% for o in items %}{% set d = o.delivery %}
+  <tr>
+    <td><a href="/outbox/{{ o.handoff_id }}">{{ o.handoff_id }}</a></td>
+    <td><a href="/case/{{ o.patient_key }}">{{ o.patient_key }}</a></td>
+    <td>{{ o.work_item.type }}</td><td>{{ o.receiving_system }}</td>
+    <td class="small"><span class="st st-{{ 'pass' if d.status == 'delivered' else 'blocked' if d.status == 'dead_letter' else 'pending' }}">{{ d.status|replace('_',' ') }}</span>
+      · {{ d.attempts }} attempt(s){% if d.last_error and d.status != 'delivered' %}<div class="muted">{{ d.last_error }}</div>{% endif %}
+      {% if d.status in ('pending', 'retrying') %}<form method="post" action="/outbox/{{ o.handoff_id }}/retry"><button class="secondary">Retry</button></form>{% endif %}
+      {% if d.status == 'dead_letter' %}<form method="post" action="/outbox/{{ o.handoff_id }}/requeue"><button class="secondary">Requeue dead letter</button></form>{% endif %}</td>
+    <td class="small">{% for g in o.gates_checked %}<span class="chip {% if g.status == 'pass' %}ok{% endif %}">{{ g.gate }} {{ g.status }}</span>{% else %}— (not gated){% endfor %}</td>
+    <td class="small">{% for x in o.simulated_dependencies %}<span class="sim-badge">SIMULATED {{ x.event_id }} {{ x.type }}</span> {% endfor %}</td>
+    <td class="mono small">{{ o.idempotency_key }}</td>
+  </tr>
+  {% else %}<tr><td colspan="8" class="muted">Nothing sent yet.</td></tr>{% endfor %}
+</table>
+{% endblock %}

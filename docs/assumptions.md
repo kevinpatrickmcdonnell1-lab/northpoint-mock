@@ -1,0 +1,56 @@
+# Assumptions and interpretation calls
+
+Every judgment call on rule wording, with its rule ID. Flags A1–A2 live in `config/workflow.yaml` and can be flipped live in the demo.
+
+## From PLAN §7.4
+| ID | Rule | Call |
+|---|---|---|
+| A1 | G-CLIN | `routine_requires_clinical_clearance: false`. PRI-3 orders need no nursing sign-off before scheduling. *Ask Intake/Clinical.* When flipped on, routine cases get `CLIN_ROUTINE_REVIEW` → Clinical Review RN. |
+| A2 | G-EVID | `no_pa_evidence_gate: [DOC-1]`. For no-PA plans (PPO), only DOC-1 gates. QUAL/REPEAT are shown as advisory and generate no actions. |
+| A3 | PRI-4 | A newer note that contradicts older timing without documenting a change → PRI-4, not an override. |
+| A4 | HMO-1 | Only an out-of-window resting ECG → *insufficient* (same action: request a current report). |
+| A5 | ID-1 | Name differences other than case/punctuation/whitespace/missing middle initial (nicknames and token order included) → conflict for human review. |
+| A6 | COV-1 | A benefits response with an unspecified product → coverage *pending*, not conflicting. |
+| A7 | Metrics | Business days = Mon–Fri, no holiday calendar. |
+| A8 | COV-1 | A benefits response dated after the evaluation date is ignored. |
+
+## Build-time calls (2026-11-24)
+| ID | Where | Call | Why |
+|---|---|---|---|
+| B1 | `app/models.py` | Extraction `fields` not listed in a packet default to `false` / `not_stated` / `null`. | PLAN §6.2: "set fields that aren't listed to `not_stated` or `false`." The defaults mean "absent", never an outcome. |
+| B2 | `app/models.py` | `fields` are validated against the model for their `doc_type`, with `extra="forbid"` at every level. A quote must cite a page in its document's `pages`. | Catches facts filed under the wrong type, and broken page references, before any rule runs. |
+| B3 | `app/models.py` | Besides `extra="forbid"`, raw JSON is scanned for an explicit `DERIVED_KEYS` list. | Invariant 2: belt and braces, with a readable error path. |
+| B4 | `app/models.py` | `IDENTITY_RESOLUTION` requires confirmed values, an Epic reference **and** a note. `BENEFITS_RESPONSE` requires a payload. `simulated` is `Literal[True]` and a DB CHECK constraint. | Invariant 3 and §6.3 ("note required"). |
+| B5 | `app/policy.py` | Product normalization lowercases and strips punctuation and extra whitespace, but never drops words. | "Harborstone Health Commercial" must stay unresolved (P09). No prefix or fuzzy matching. |
+| B6 | config path | PLAN §3 mentions `policy/sc-card-1.1.yaml`; §4 and CLAUDE.md say `config/policy_sc_card_1_1.yaml`. The latter is used. | CLAUDE.md wins. |
+| B7 | `rules/common.py` (§7.2 "only signed documents") | The signature requirement applies to clinical documents (referral, order, clinician note, ECG reports). Registration, card and benefits responses are administrative records with no clinician signature. They are used by ID-1/COV-1/plan resolution and labelled "n/a (admin)" in the UI. | Otherwise no coverage or identity rule could ever pass. |
+| B8 | PRI (§7.2) | A candidate "addresses timing/severity" if it states any of: urgent or expedited request, material increase date, a trajectory other than `not_stated`, or timing text. "Contradicts" means both trajectories are stated and differ. A **documented material change** means the newer note states a `material_increase_date`. An explicit expedited/urgent request in a newer note is not a contradiction. | P06: a clinician asking for expedited review over a plain referral is an escalation, not a conflict. P05: the documented change overrides. P08: same-day disagreement → PRI-4. |
+| B9 | QUAL-1 | "Order indication matches the complaint" is a text match on the order's indication: `exertional` + chest discomfort/pain/pressure/tightness, or `exertional` + dyspnea/shortness of breath. | P10's indication "chest pain" (no exertional term) does not match. That doesn't matter here, because the complete nonexertional assessment makes QUAL-1 NM. |
+| B10 | COV-1 "two in-window responses disagree" | Read as two responses with the **same newest** response date that disagree. A newer response supersedes an older one. | Otherwise the scripted P04 transition (a simulated E&B on 10-01 replacing the 09-23 mismatched response) could never verify coverage, which contradicts §6.3. |
+| B11 | COV-1 member match | Expected member ID = the human-confirmed `member_id` from an `IDENTITY_RESOLUTION` event if present, else every registration/card member ID. The newest response must equal it exactly. Coverage verification also requires plan resolution to be `resolved`. | P04 stays conflicting after the identity resolution until a matching E&B arrives (§6.3). "Exact product" requires the product to be resolved. |
+| B12 | Actions (P04) | §6.3's next-action column for P04 lists only "Verify identity". The coverage column says Conflicting, so the engine also emits `COV_CONFLICT` (Reconcile member mismatch → Intake). The golden test expects both. | Each hold gets an owner, and coverage is genuinely conflicting. This reads the table's terse action column; it doesn't change the table. |
+| B13 | Actions | When any gating criterion is NM, only `EVID_NOT_MET` is emitted. Missing-report requests are suppressed, because chasing documents for a case that does not meet criteria wastes outreach. DOC-1 and QUAL-1 both missing because there's no order → one order request. | P07, P10 and P09 as in §6.3. |
+| B14 | Actions after clinical events | `reviewed_hold` → `CLIN_REVIEWED_HOLD` (Triage RN; scheduling still held). `not_cleared` → `CLIN_NOT_CLEARED`. `cleared_for_scheduling` → no clinical action. Priority itself never changes because of an event. | §6.3 P03/P08. Triage acts without rewriting the source evidence. |
+| B15 | PA lifecycle | PA prep ready + no payer decision → `PA_READY`. `pended` → `PA_AWAITING`. `denied` → `PA_DENIED` (SIMULATED). The engine does not read the outbox, so a sent PA packet does not change the action. The outbox shows the submission. | Keeps the engine pure (facts + events + policy only). |
+| B16 | Metrics | Admin-readiness date = the latest simulated event date on the case, or the evaluation date if ready at baseline. P08 counts as admin-ready, because G-CLIN is excluded (§7.3). | §8.5. |
+| B17 | Handoffs | Gated: scheduling (all six gates) and PA packet (PA-prep gates). Ungated (always allowed when applicable): triage notification, identity task, missing-info request. Idempotency key = packet + kind + gate/event snapshot hash, or a payload hash for ungated items. | §8.4. A new simulated event changes the snapshot, so a re-send after a real change is a new handoff. |
+| B18 | Data layout (§6.4) | Dataset auto-selects `real` once `data/extractions/*.json` exists; `NORTHPOINT_DATASET` overrides. Tests always use the mock set. | Keeps the mock set as a regression suite without a manual switch. |
+| B19 | Combined PDFs | Extractions cite the ORIGINAL file and page. An optional `data/packets/manifest.yaml` gives each packet's page range, and `check` rejects cited pages outside it. | §6.4.1. Tested by merging P01 and P02 into one PDF: same outcomes, refs point at the combined file. |
+| B20 | Stretch: delivery | A handoff is recorded once (gated, idempotent). Delivery attempts are separate append-only rows. A SIMULATED receiver outage fails attempts; after `delivery_max_attempts` (3) the handoff is dead-lettered for the integration owner, and only a human requeue replays it with the same payload and key. Retries never re-gate, re-record or duplicate. | §11 production note: "idempotent handoffs with retry and dead-letter queues". |
+| B21 | Stretch: site | `ordering_site` is intake metadata on the extraction (printed in the page footer). Never used by any rule (mutation-tested). Used only for the queue filter and per-site metrics. | §1.6.4 / §10 Stretch: show which sites drive the holds without letting site change a decision. |
+
+## Real packets (2026-11-25, Phase 7)
+| ID | Where | Call | Why |
+|---|---|---|---|
+| R1 | ECG reports | A report page stating a *final clinician interpretation* (or "final interpretation reviewed by the ordering clinician", R01) counts as an authenticated, clinician-interpreted report (`signed: true`, signer noted as per report). | The real reports carry no separate signature line. Their pages say the interpretation is final and clinician-written ("use supplied clinician-written interpretations as written"). |
+| R2 | R01 DOC-1 | The Westbridge form's DIAGNOSTIC ORDER names only "Stress echocardiogram". The reason "Exertional chest discomfort" sits under CONSULT REFERRAL, so the order names no indication → DOC-1 I, and a corrected signed order is requested. | DOC-1 requires the *order* to name the indication. The fax note invites a corrected order. Every other packet's order states "Indication: …" explicitly. |
+| R3 | R01 REPEAT-1 | No statement about prior stress echo anywhere (the result history lists ECG, lipids, CMP and an annual visit) → `stated: false` → I. | Absence from a results list is not a clinician statement. |
+| R4 | Addenda | The signed 10-01 "Supplemental prior-test history" entries are clinician notes, not assessments, and are not priority candidates. They state test history only. | PRI excludes "records limited to test history". They feed REPEAT-1 via B23 below. |
+| R5 | R08 | The signed 09-30 "Clinical Update" is the only clinician assessment in the packet. It documents a material change (new rest episode, `material_increase_date` 2026-09-30) and requests urgent review, superseding the 09-20 routine order → PRI-1. | A newer note documenting a change overrides older timing (§7.2). |
+| R6 | R03 | The outside exercise ECG (2026-02-20, "equivocal") is only referenced; there's no report, and it's out of window → branch B unknown. | QUAL-2 needs a complete clinician-interpreted report dated ≥ 04-04. |
+| R7 | R09 p.7 | The prior stress echo report is `other`; the REPEAT-1 facts come from the signed assessment. | That report records the prior study, not a current criterion. |
+| R8 | Identifiers | Names/DOBs are taken from each document's body (and the page header where it's the only source). On these packets the MRN and packet ID strings are identical (`NRH-SYN-72xx`) but are stored as separate types and never compared with each other. R01 has no packet ID (`NONE-STATED-R01`). | Invariant 9. |
+| R9 | Channel/site | `received_channel` is `fax` for R01 only, `not_stated` elsewhere. `ordering_site` is left null: the pages record a location *preference*, not an ordering site. | Facts only. |
+| B22 | QUAL-1 | Orders carry `indication_type`; QUAL-1 compares it with the assessment's `complaint_type`. The B9 keyword match is a fallback for older extractions. | Real indications describe exertion without the word "exertional". |
+| B23 | REPEAT-1 | Prior-stress-echo history comes from the assessment if it states it, else from the newest signed clinician addendum that does. | The real packets supply it as a dated, signed addendum. |
+| B24 | Dataset switch | The real set activates only when all cited source PDFs are present. | Prevents a broken page viewer and quote check. |

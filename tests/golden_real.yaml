@@ -1,0 +1,168 @@
+# PLAN §6.4.3: golden table for the REAL packets, derived by hand from the page text
+# BEFORE the engine was run on them (2026-11-25). Not copied from the mock table.
+# Derived by Claude from the supplied pages; Kevin to confirm. Reasoning per row below.
+# Evaluation date 2026-10-01. Windows: E&B >= 09-01, PRI-2 [09-17, 10-01],
+# resting ECG >= 07-03, exercise ECG >= 04-04, prior stress echo >= 04-04.
+
+# R01 Tessa Lornwell (Westbridge fax). DOB 06/12/1958 on order, ECG and note vs 06/21/1958 on
+# face sheet and card -> identity conflicting. No dated benefits response (face sheet: "Pending
+# current E&B check") -> COV pending/none. SCMA -> PA required. The signed form's DIAGNOSTIC ORDER
+# names only "Stress echocardiogram" (the reason sits under CONSULT REFERRAL) -> no order naming an
+# indication -> DOC-1 I, and QUAL-1 cannot match an order indication -> I. ECG 09/18 nonspecific ST-T,
+# final, clinician-reviewed -> QUAL-2 S (A). No statement about prior stress echo -> REPEAT-1 I.
+# Newest priority source: order/referral 09/20, next available, no material-increase date -> PRI-3.
+R01:
+  priority: PRI-3
+  identity: conflicting
+  coverage: pending
+  pa: required
+  DOC-1: I
+  QUAL-1: I
+  QUAL-2: S
+  REPEAT-1: I
+  HMO-1: NA
+  EVIDENCE: I
+  actions: [ID_CONFLICT, COV_PENDING_NONE, EVID_MISSING_ORDER, EVID_MISSING_REPORT]
+
+# R02 Ada Merrin. SCMA, E&B 09-30 active/matched. Chest pressure with uphill walking, unchanged 4 weeks,
+# routine -> PRI-3. ECG 09-24 nonspecific ST-T -> A supported. 10-01 signed addendum: no stress echo
+# 04-04..10-01 -> REPEAT-1 S. Everything supported -> PA prep ready.
+R02:
+  priority: PRI-3
+  identity: verified
+  coverage: verified
+  pa: required
+  DOC-1: S
+  QUAL-1: S
+  QUAL-2: S
+  REPEAT-1: S
+  HMO-1: NA
+  EVIDENCE: S
+  actions: [PA_READY]
+
+# R03 Beren Solas. SCMA. Material increase 09-23 (in PRI-2 window) + expedited request -> PRI-2.
+# Exercise ECG 02-20 is only a reference ("equivocal"), no report, and is out of window; no resting ECG
+# report -> both QUAL-2 branches unknown -> I. Addendum: no stress echo in window -> REPEAT-1 S.
+R03:
+  priority: PRI-2
+  identity: verified
+  coverage: verified
+  pa: required
+  DOC-1: S
+  QUAL-1: S
+  QUAL-2: I
+  REPEAT-1: S
+  HMO-1: NA
+  EVIDENCE: I
+  actions: [CLIN_EXPEDITED, EVID_MISSING_REPORT]
+
+# R04 Cora Venn. SCMA. Complete assessment: nonexertional meal-related discomfort, "no concern for
+# possible coronary ischemia" -> QUAL-1 NM. ECG 09-26 normal -> A failed; exercise ECG history not
+# stated -> B unknown -> QUAL-2 I (NOT NM). Evidence NM (QUAL-1). Routine -> PRI-3.
+R04:
+  priority: PRI-3
+  identity: verified
+  coverage: verified
+  pa: required
+  DOC-1: S
+  QUAL-1: NM
+  QUAL-2: I
+  REPEAT-1: S
+  HMO-1: NA
+  EVIDENCE: NM
+  actions: [EVID_NOT_MET]
+
+# R05 Dalia Kest. Harborstone PPO -> PA not required. Increase 09-24 + expedited -> PRI-2.
+# Exercise ECG 09-20 equivocal, complete, final -> B supported. Admin-ready, but G-CLIN holds scheduling.
+R05:
+  priority: PRI-2
+  identity: verified
+  coverage: verified
+  pa: not_required
+  DOC-1: S
+  QUAL-1: S
+  QUAL-2: S
+  REPEAT-1: S
+  HMO-1: NA
+  EVIDENCE: S
+  actions: [CLIN_EXPEDITED]
+
+# R06 Elias Brinn. Same clinical story as R05 but Harborstone HMO -> HMO-1 applies. Resting ECG was
+# requested but the report is absent -> HMO-1 I (the equivocal exercise ECG does not satisfy HMO-1).
+R06:
+  priority: PRI-2
+  identity: verified
+  coverage: verified
+  pa: required
+  DOC-1: S
+  QUAL-1: S
+  QUAL-2: S
+  REPEAT-1: S
+  HMO-1: I
+  EVIDENCE: I
+  actions: [CLIN_EXPEDITED, EVID_HMO1]
+
+# R07 Farah Quill. LCH. New rest episode 09-30 + explicit urgent request -> PRI-1. ECG 09-30 abnormal
+# -> A supported. "No stress echocardiogram in the lookback period" -> REPEAT-1 S. Admin evidence all
+# supported -> PA prep ready even though clinically urgent (clinical holds never block PA prep).
+R07:
+  priority: PRI-1
+  identity: verified
+  coverage: verified
+  pa: required
+  DOC-1: S
+  QUAL-1: S
+  QUAL-2: S
+  REPEAT-1: S
+  HMO-1: NA
+  EVIDENCE: S
+  actions: [CLIN_URGENT, PA_READY]
+
+# R08 Gideon Hale. SCMA. Order 09-20 stable/next available; signed 09-30 clinical update documents a new
+# rest episode and requests urgent review, superseding the routine timing -> PRI-1 (newer note documents
+# a material change). Resting ECG ordered 09-30, report absent; no exercise ECG -> QUAL-2 I.
+R08:
+  priority: PRI-1
+  identity: verified
+  coverage: verified
+  pa: required
+  DOC-1: S
+  QUAL-1: S
+  QUAL-2: I
+  REPEAT-1: S
+  HMO-1: NA
+  EVIDENCE: I
+  actions: [CLIN_URGENT, EVID_MISSING_REPORT]
+
+# R09 Hana Orrel. Harborstone HMO. Prior stress echo 2026-08-15 (>= 04-04) with no material symptom
+# change -> REPEAT-1 NM. ECG 09-25 nonspecific ST-T, final -> A supported and HMO-1 S. Stable -> PRI-3.
+R09:
+  priority: PRI-3
+  identity: verified
+  coverage: verified
+  pa: required
+  DOC-1: S
+  QUAL-1: S
+  QUAL-2: S
+  REPEAT-1: NM
+  HMO-1: S
+  EVIDENCE: NM
+  actions: [EVID_NOT_MET]
+
+# R10 Imani Voss. LCH. Increase 09-25 + expedited -> PRI-2. ECG 09-29 nonspecific -> A supported.
+# E&B 09-30: coverage terminated 09-15, inactive on 10-01 -> COV inactive.
+R10:
+  priority: PRI-2
+  identity: verified
+  coverage: inactive
+  pa: required
+  DOC-1: S
+  QUAL-1: S
+  QUAL-2: S
+  REPEAT-1: S
+  HMO-1: NA
+  EVIDENCE: S
+  actions: [CLIN_EXPEDITED, COV_INACTIVE]
+
+# Baseline for the real set (property of these ten packets, not Northpoint's mix):
+# 0 sendable to scheduling, 2 ready for PA prep (R02, R07), 8 held.

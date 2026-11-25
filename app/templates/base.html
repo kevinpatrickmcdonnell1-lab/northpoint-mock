@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Northpoint readiness{% endblock %} · SYNTHETIC</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body hx-boost="true">
+  <div class="synthetic">SYNTHETIC – MOCK DATA · all names and IDs are fictional · not connected to any real system</div>
+  <header>
+    <a class="brand" href="/">Northpoint · stress-echo readiness</a>
+    <nav><a href="/">Queue</a><a href="/outbox">Outbox</a><a href="/metrics">Metrics</a></nav>
+  </header>
+  <main>
+    {% if msg %}<div class="flash {% if msg.startswith('BLOCKED') or msg.startswith('Not recorded') %}flash-bad{% endif %}">{{ msg }}</div>{% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

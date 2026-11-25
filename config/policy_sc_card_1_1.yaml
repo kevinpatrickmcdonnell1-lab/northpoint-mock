@@ -1,0 +1,23 @@
+# SC-CARD-1.1 policy config. All rule dates derive from eval_date + windows.
+# SYNTHETIC – MOCK DATA
+policy_version: SC-CARD-1.1
+effective: {from: 2026-09-01, to: 2026-12-31}
+eval_date: 2026-10-01
+windows:            # days back from eval_date, inclusive start
+  benefits_response: 30       # -> 2026-09-01
+  pri2_material_increase: 14  # -> 2026-09-17 .. 2026-10-01
+  resting_ecg: 90             # -> 2026-07-03
+  exercise_ecg: 180           # -> 2026-04-04
+  prior_stress_echo: 180      # -> 2026-04-04
+plans:
+  PLAN-SCMA:  {payer: Summit Crest, product: "Summit Crest Medicare Advantage", pa: required}
+  PLAN-HSPPO: {payer: Harborstone Health, product: "Harborstone Health Commercial PPO", pa: not_required}
+  PLAN-HSHMO: {payer: Harborstone Health, product: "Harborstone Health Commercial HMO", pa: required, extra: [HMO-1]}
+  PLAN-LCH:   {payer: Lakeshore Community Health, product: "Lakeshore Community Health Managed Medicaid", pa: required}
+product_aliases:    # exact-product strings only; anything else -> unresolved
+  "summit crest medicare advantage": PLAN-SCMA
+  "scma": PLAN-SCMA
+  "harborstone health commercial ppo": PLAN-HSPPO
+  "harborstone health commercial hmo": PLAN-HSHMO
+  "lakeshore community health managed medicaid": PLAN-LCH
+  "lch managed medicaid": PLAN-LCH

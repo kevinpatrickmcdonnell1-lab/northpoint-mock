@@ -1,0 +1,406 @@
+{
+  "packet_id": "NRH-SYN-7207",
+  "patient_key": "R07",
+  "source_file": "Patient_07_Farah_Quill.pdf",
+  "received_at": "2026-09-30",
+  "received_channel": "not_stated",
+  "ordering_site": null,
+  "extraction_method": "llm_draft_human_verified",
+  "documents": [
+    {
+      "doc_id": "R07-D1",
+      "doc_type": "other",
+      "pages": [
+        1
+      ],
+      "date": "2026-09-30",
+      "signed": false,
+      "signer": null,
+      "identifiers": {
+        "name": "Farah Quill",
+        "dob": "1967-12-05",
+        "mrn": null,
+        "packet_id": "NRH-SYN-7207",
+        "member_id": null
+      },
+      "fields": {
+        "text": "Referral Transmission Record"
+      },
+      "quotes": [
+        {
+          "field": "text",
+          "page": 1,
+          "text": "Referral Transmission Record"
+        },
+        {
+          "field": "text",
+          "page": 1,
+          "text": "Original referral received 2026-09-30"
+        }
+      ]
+    },
+    {
+      "doc_id": "R07-D2",
+      "doc_type": "referral",
+      "pages": [
+        2
+      ],
+      "date": "2026-09-30",
+      "signed": true,
+      "signer": "Rowan S. Mercer, MD (synthetic)",
+      "identifiers": {
+        "name": "Farah Quill",
+        "dob": "1967-12-05",
+        "mrn": null,
+        "packet_id": "NRH-SYN-7207",
+        "member_id": null
+      },
+      "fields": {
+        "urgent_review_requested": true,
+        "urgent_reason": "new_symptoms_at_rest",
+        "expedited_review_requested": false,
+        "material_increase_date": "2026-09-30",
+        "symptom_trajectory": "worsening",
+        "timing_text": "Urgent clinical review requested.",
+        "referral_id": null,
+        "service_requested": "consult"
+      },
+      "quotes": [
+        {
+          "field": "service_requested",
+          "page": 2,
+          "text": "New-patient cardiology consultation."
+        },
+        {
+          "field": "timing_text",
+          "page": 2,
+          "text": "Requested timing: Urgent clinical review requested."
+        },
+        {
+          "field": "signer",
+          "page": 2,
+          "text": "Electronically signed by Rowan S. Mercer, MD (synthetic)"
+        }
+      ]
+    },
+    {
+      "doc_id": "R07-D3",
+      "doc_type": "stress_echo_order",
+      "pages": [
+        2
+      ],
+      "date": "2026-09-30",
+      "signed": true,
+      "signer": "Rowan S. Mercer, MD (synthetic)",
+      "identifiers": {
+        "name": "Farah Quill",
+        "dob": "1967-12-05",
+        "mrn": null,
+        "packet_id": "NRH-SYN-7207",
+        "member_id": null
+      },
+      "fields": {
+        "procedure": "Outpatient stress echocardiogram",
+        "indication": "Exertional chest discomfort has worsened over ten days; a new episode at rest occurred on 2026-09-30, documented by the clinician.",
+        "indication_type": "exertional_chest_discomfort"
+      },
+      "quotes": [
+        {
+          "field": "procedure",
+          "page": 2,
+          "text": "Separate diagnostic order"
+        },
+        {
+          "field": "indication",
+          "page": 2,
+          "text": "Outpatient stress echocardiogram. Indication: Exertional chest discomfort has worsened over ten days; a new episode at rest occurred on 2026-09-30, documented by the clinician."
+        },
+        {
+          "field": "signer",
+          "page": 2,
+          "text": "Date signed 2026-09-30"
+        }
+      ]
+    },
+    {
+      "doc_id": "R07-D4",
+      "doc_type": "registration_face_sheet",
+      "pages": [
+        3
+      ],
+      "date": null,
+      "signed": false,
+      "signer": null,
+      "identifiers": {
+        "name": "Farah Quill",
+        "dob": "1967-12-05",
+        "mrn": "NRH-SYN-7207",
+        "packet_id": null,
+        "member_id": "LCH-SYN-8207"
+      },
+      "fields": {
+        "payer": "Lakeshore",
+        "plan_product_raw": "Lakeshore Community Health Managed Medicaid",
+        "member_id": "LCH-SYN-8207"
+      },
+      "quotes": [
+        {
+          "field": "plan_product_raw",
+          "page": 3,
+          "text": "Lakeshore Community Health Managed Medicaid"
+        },
+        {
+          "field": "member_id",
+          "page": 3,
+          "text": "LCH-SYN-8207"
+        },
+        {
+          "field": "mrn",
+          "page": 3,
+          "text": "Medical record number NRH-SYN-7207"
+        }
+      ]
+    },
+    {
+      "doc_id": "R07-D5",
+      "doc_type": "clinician_note",
+      "pages": [
+        4,
+        5
+      ],
+      "date": "2026-09-30",
+      "signed": true,
+      "signer": "Rowan S. Mercer, MD (synthetic)",
+      "identifiers": {
+        "name": "Farah Quill",
+        "dob": "1967-12-05",
+        "mrn": null,
+        "packet_id": null,
+        "member_id": null
+      },
+      "fields": {
+        "urgent_review_requested": true,
+        "urgent_reason": "new_symptoms_at_rest",
+        "expedited_review_requested": false,
+        "material_increase_date": "2026-09-30",
+        "symptom_trajectory": "worsening",
+        "timing_text": "worsened over ten days; new episode at rest 2026-09-30",
+        "is_assessment": true,
+        "assessment_complete": true,
+        "symptom_course_documented": true,
+        "relevant_history_documented": true,
+        "complaint_type": "exertional_chest_discomfort",
+        "ischemia_concern": "not_stated",
+        "prior_stress_echo": {
+          "stated": true,
+          "date": null
+        },
+        "interval_change_after_prior": null,
+        "repeat_rationale": null,
+        "tests_mentioned_without_report": [],
+        "exercise_ecg_history": {
+          "stated": false,
+          "none_since": null
+        }
+      },
+      "quotes": [
+        {
+          "field": "urgent_review_requested",
+          "page": 5,
+          "text": "I explicitly"
+        },
+        {
+          "field": "urgent_reason",
+          "page": 5,
+          "text": "request urgent cardiology clinical review because of the new rest episode and the high-risk"
+        },
+        {
+          "field": "prior_stress_echo",
+          "page": 5,
+          "text": "No stress echocardiogram in the lookback period."
+        },
+        {
+          "field": "relevant_history_documented",
+          "page": 4,
+          "text": "Treated diabetes and dyslipidemia; no stress echo in the lookback period."
+        },
+        {
+          "field": "signer",
+          "page": 5,
+          "text": "Electronically signed by Rowan S. Mercer, MD (synthetic), 2026-09-30."
+        }
+      ]
+    },
+    {
+      "doc_id": "R07-D6",
+      "doc_type": "resting_ecg_report",
+      "pages": [
+        6
+      ],
+      "date": "2026-09-30",
+      "signed": true,
+      "signer": "final clinician interpretation (per report)",
+      "identifiers": {
+        "name": "Farah Quill",
+        "dob": "1967-12-05",
+        "mrn": "NRH-SYN-7207",
+        "packet_id": null,
+        "member_id": null
+      },
+      "fields": {
+        "test_date": "2026-09-30",
+        "clinician_interpreted": true,
+        "interpretation": "abnormal",
+        "complete": true
+      },
+      "quotes": [
+        {
+          "field": "test_date",
+          "page": 6,
+          "text": "Study date 2026-09-30"
+        },
+        {
+          "field": "interpretation",
+          "page": 6,
+          "text": "abnormal resting ECG with new horizontal ST depression compared with the 2026-08-20"
+        }
+      ]
+    },
+    {
+      "doc_id": "R07-D7",
+      "doc_type": "clinician_note",
+      "pages": [
+        6
+      ],
+      "date": "2026-10-01",
+      "signed": true,
+      "signer": "Rowan S. Mercer, MD (synthetic)",
+      "identifiers": {
+        "name": "Farah Quill",
+        "dob": "1967-12-05",
+        "mrn": null,
+        "packet_id": null,
+        "member_id": null
+      },
+      "fields": {
+        "urgent_review_requested": false,
+        "urgent_reason": null,
+        "expedited_review_requested": false,
+        "material_increase_date": null,
+        "symptom_trajectory": "not_stated",
+        "timing_text": null,
+        "is_assessment": false,
+        "assessment_complete": false,
+        "symptom_course_documented": false,
+        "relevant_history_documented": false,
+        "complaint_type": "not_stated",
+        "ischemia_concern": "not_stated",
+        "prior_stress_echo": {
+          "stated": true,
+          "date": null
+        },
+        "interval_change_after_prior": null,
+        "repeat_rationale": null,
+        "tests_mentioned_without_report": [],
+        "exercise_ecg_history": {
+          "stated": false,
+          "none_since": null
+        }
+      },
+      "quotes": [
+        {
+          "field": "prior_stress_echo",
+          "page": 6,
+          "text": "2026-04-04 through 2026-10-01"
+        },
+        {
+          "field": "signer",
+          "page": 6,
+          "text": "Electronically signed by Rowan S. Mercer, MD (synthetic), 2026-10-01."
+        }
+      ]
+    },
+    {
+      "doc_id": "R07-D8",
+      "doc_type": "insurance_card",
+      "pages": [
+        7
+      ],
+      "date": null,
+      "signed": false,
+      "signer": null,
+      "identifiers": {
+        "name": "Farah Quill",
+        "dob": "1967-12-05",
+        "mrn": null,
+        "packet_id": null,
+        "member_id": "LCH-SYN-8207"
+      },
+      "fields": {
+        "payer": null,
+        "plan_product_raw": "Lakeshore Community Health Managed Medicaid",
+        "member_id": "LCH-SYN-8207"
+      },
+      "quotes": [
+        {
+          "field": "plan_product_raw",
+          "page": 7,
+          "text": "Lakeshore Community Health Managed Medicaid"
+        },
+        {
+          "field": "member_id",
+          "page": 7,
+          "text": "LCH-SYN-8207"
+        },
+        {
+          "field": "other",
+          "page": 7,
+          "text": "SYNTHETIC CARD IMAGE - NOT VALID FOR BILLING"
+        }
+      ]
+    },
+    {
+      "doc_id": "R07-D9",
+      "doc_type": "benefits_response",
+      "pages": [
+        7
+      ],
+      "date": "2026-09-30",
+      "signed": false,
+      "signer": null,
+      "identifiers": {
+        "name": null,
+        "dob": null,
+        "mrn": null,
+        "packet_id": null,
+        "member_id": "LCH-SYN-8207"
+      },
+      "fields": {
+        "payer": null,
+        "plan_product_raw": "Lakeshore Community Health Managed Medicaid",
+        "member_id": "LCH-SYN-8207",
+        "response_date": "2026-09-30",
+        "coverage_active_on_eval_date": true,
+        "product_end_date": null
+      },
+      "quotes": [
+        {
+          "field": "response_date",
+          "page": 7,
+          "text": "Response date 2026-09-30"
+        },
+        {
+          "field": "member_id",
+          "page": 7,
+          "text": "LCH-SYN-8207 / Lakeshore Community Health Managed Medicaid"
+        },
+        {
+          "field": "coverage_active_on_eval_date",
+          "page": 7,
+          "text": "Active on 2026-10-01; exact product and member matched."
+        }
+      ]
+    }
+  ],
+  "corrections": []
+}

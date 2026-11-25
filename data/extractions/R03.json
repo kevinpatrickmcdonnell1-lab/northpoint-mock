@@ -1,0 +1,401 @@
+{
+  "packet_id": "NRH-SYN-7203",
+  "patient_key": "R03",
+  "source_file": "Patient_03_Beren_Solas.pdf",
+  "received_at": "2026-09-29",
+  "received_channel": "not_stated",
+  "ordering_site": null,
+  "extraction_method": "llm_draft_human_verified",
+  "documents": [
+    {
+      "doc_id": "R03-D1",
+      "doc_type": "other",
+      "pages": [
+        1
+      ],
+      "date": "2026-09-29",
+      "signed": false,
+      "signer": null,
+      "identifiers": {
+        "name": "Beren Solas",
+        "dob": "1964-11-03",
+        "mrn": null,
+        "packet_id": "NRH-SYN-7203",
+        "member_id": null
+      },
+      "fields": {
+        "text": "Referral Transmission Record"
+      },
+      "quotes": [
+        {
+          "field": "text",
+          "page": 1,
+          "text": "Referral Transmission Record"
+        },
+        {
+          "field": "text",
+          "page": 1,
+          "text": "Original referral received 2026-09-29"
+        }
+      ]
+    },
+    {
+      "doc_id": "R03-D2",
+      "doc_type": "referral",
+      "pages": [
+        2
+      ],
+      "date": "2026-09-28",
+      "signed": true,
+      "signer": "Rowan S. Mercer, MD (synthetic)",
+      "identifiers": {
+        "name": "Beren Solas",
+        "dob": "1964-11-03",
+        "mrn": null,
+        "packet_id": "NRH-SYN-7203",
+        "member_id": null
+      },
+      "fields": {
+        "urgent_review_requested": false,
+        "urgent_reason": null,
+        "expedited_review_requested": true,
+        "material_increase_date": "2026-09-23",
+        "symptom_trajectory": "worsening",
+        "timing_text": "Expedited review requested.",
+        "referral_id": null,
+        "service_requested": "consult"
+      },
+      "quotes": [
+        {
+          "field": "service_requested",
+          "page": 2,
+          "text": "New-patient cardiology consultation."
+        },
+        {
+          "field": "timing_text",
+          "page": 2,
+          "text": "Requested timing: Expedited review requested."
+        },
+        {
+          "field": "signer",
+          "page": 2,
+          "text": "Electronically signed by Rowan S. Mercer, MD (synthetic)"
+        }
+      ]
+    },
+    {
+      "doc_id": "R03-D3",
+      "doc_type": "stress_echo_order",
+      "pages": [
+        2
+      ],
+      "date": "2026-09-28",
+      "signed": true,
+      "signer": "Rowan S. Mercer, MD (synthetic)",
+      "identifiers": {
+        "name": "Beren Solas",
+        "dob": "1964-11-03",
+        "mrn": null,
+        "packet_id": "NRH-SYN-7203",
+        "member_id": null
+      },
+      "fields": {
+        "procedure": "Outpatient stress echocardiogram",
+        "indication": "Exertional chest pressure became more frequent on 2026-09-23 and now occurs during shorter walks; no rest episode documented.",
+        "indication_type": "exertional_chest_discomfort"
+      },
+      "quotes": [
+        {
+          "field": "procedure",
+          "page": 2,
+          "text": "Separate diagnostic order"
+        },
+        {
+          "field": "indication",
+          "page": 2,
+          "text": "Outpatient stress echocardiogram. Indication: Exertional chest pressure became more frequent on 2026-09-23 and now occurs during shorter walks; no rest episode documented."
+        },
+        {
+          "field": "signer",
+          "page": 2,
+          "text": "Date signed 2026-09-28"
+        }
+      ]
+    },
+    {
+      "doc_id": "R03-D4",
+      "doc_type": "registration_face_sheet",
+      "pages": [
+        3
+      ],
+      "date": null,
+      "signed": false,
+      "signer": null,
+      "identifiers": {
+        "name": "Beren Solas",
+        "dob": "1964-11-03",
+        "mrn": "NRH-SYN-7203",
+        "packet_id": null,
+        "member_id": "SCMA-SYN-8203"
+      },
+      "fields": {
+        "payer": "Summit Crest",
+        "plan_product_raw": "Summit Crest Medicare Advantage",
+        "member_id": "SCMA-SYN-8203"
+      },
+      "quotes": [
+        {
+          "field": "plan_product_raw",
+          "page": 3,
+          "text": "Summit Crest Medicare Advantage"
+        },
+        {
+          "field": "member_id",
+          "page": 3,
+          "text": "SCMA-SYN-8203"
+        },
+        {
+          "field": "mrn",
+          "page": 3,
+          "text": "Medical record number NRH-SYN-7203"
+        }
+      ]
+    },
+    {
+      "doc_id": "R03-D5",
+      "doc_type": "clinician_note",
+      "pages": [
+        4,
+        5
+      ],
+      "date": "2026-09-28",
+      "signed": true,
+      "signer": "Rowan S. Mercer, MD (synthetic)",
+      "identifiers": {
+        "name": "Beren Solas",
+        "dob": "1964-11-03",
+        "mrn": null,
+        "packet_id": null,
+        "member_id": null
+      },
+      "fields": {
+        "urgent_review_requested": false,
+        "urgent_reason": null,
+        "expedited_review_requested": true,
+        "material_increase_date": "2026-09-23",
+        "symptom_trajectory": "worsening",
+        "timing_text": "more frequent since 2026-09-23",
+        "is_assessment": true,
+        "assessment_complete": true,
+        "symptom_course_documented": true,
+        "relevant_history_documented": true,
+        "complaint_type": "exertional_chest_discomfort",
+        "ischemia_concern": "not_stated",
+        "prior_stress_echo": {
+          "stated": false,
+          "date": null
+        },
+        "interval_change_after_prior": null,
+        "repeat_rationale": null,
+        "tests_mentioned_without_report": [
+          "exercise ECG (outside, 2026-02-20)",
+          "resting ECG"
+        ],
+        "exercise_ecg_history": {
+          "stated": false,
+          "none_since": null
+        }
+      },
+      "quotes": [
+        {
+          "field": "material_increase_date",
+          "page": 5,
+          "text": "Exertional chest pressure with a material symptom increase beginning 2026-09-23."
+        },
+        {
+          "field": "expedited_review_requested",
+          "page": 5,
+          "text": "I request expedited cardiology review."
+        },
+        {
+          "field": "tests_mentioned_without_report",
+          "page": 4,
+          "text": "The complete report was not sent with that record."
+        },
+        {
+          "field": "relevant_history_documented",
+          "page": 4,
+          "text": "Type 2 diabetes and treated hypertension; no reported syncope."
+        },
+        {
+          "field": "signer",
+          "page": 5,
+          "text": "Electronically signed by Rowan S. Mercer, MD (synthetic), 2026-09-28."
+        }
+      ]
+    },
+    {
+      "doc_id": "R03-D6",
+      "doc_type": "other",
+      "pages": [
+        6
+      ],
+      "date": "2026-10-01",
+      "signed": false,
+      "signer": null,
+      "identifiers": {
+        "name": "Beren Solas",
+        "dob": "1964-11-03",
+        "mrn": null,
+        "packet_id": null,
+        "member_id": null
+      },
+      "fields": {
+        "text": "Referral records correspondence"
+      },
+      "quotes": [
+        {
+          "field": "text",
+          "page": 6,
+          "text": "Referral records correspondence"
+        }
+      ]
+    },
+    {
+      "doc_id": "R03-D7",
+      "doc_type": "clinician_note",
+      "pages": [
+        6
+      ],
+      "date": "2026-10-01",
+      "signed": true,
+      "signer": "Rowan S. Mercer, MD (synthetic)",
+      "identifiers": {
+        "name": "Beren Solas",
+        "dob": "1964-11-03",
+        "mrn": null,
+        "packet_id": null,
+        "member_id": null
+      },
+      "fields": {
+        "urgent_review_requested": false,
+        "urgent_reason": null,
+        "expedited_review_requested": false,
+        "material_increase_date": null,
+        "symptom_trajectory": "not_stated",
+        "timing_text": null,
+        "is_assessment": false,
+        "assessment_complete": false,
+        "symptom_course_documented": false,
+        "relevant_history_documented": false,
+        "complaint_type": "not_stated",
+        "ischemia_concern": "not_stated",
+        "prior_stress_echo": {
+          "stated": true,
+          "date": null
+        },
+        "interval_change_after_prior": null,
+        "repeat_rationale": null,
+        "tests_mentioned_without_report": [],
+        "exercise_ecg_history": {
+          "stated": false,
+          "none_since": null
+        }
+      },
+      "quotes": [
+        {
+          "field": "prior_stress_echo",
+          "page": 6,
+          "text": "2026-04-04 through 2026-10-01"
+        },
+        {
+          "field": "signer",
+          "page": 6,
+          "text": "Electronically signed by Rowan S. Mercer, MD (synthetic), 2026-10-01."
+        }
+      ]
+    },
+    {
+      "doc_id": "R03-D8",
+      "doc_type": "insurance_card",
+      "pages": [
+        7
+      ],
+      "date": null,
+      "signed": false,
+      "signer": null,
+      "identifiers": {
+        "name": "Beren Solas",
+        "dob": "1964-11-03",
+        "mrn": null,
+        "packet_id": null,
+        "member_id": "SCMA-SYN-8203"
+      },
+      "fields": {
+        "payer": null,
+        "plan_product_raw": "Summit Crest Medicare Advantage",
+        "member_id": "SCMA-SYN-8203"
+      },
+      "quotes": [
+        {
+          "field": "plan_product_raw",
+          "page": 7,
+          "text": "Summit Crest Medicare Advantage"
+        },
+        {
+          "field": "member_id",
+          "page": 7,
+          "text": "SCMA-SYN-8203"
+        },
+        {
+          "field": "other",
+          "page": 7,
+          "text": "SYNTHETIC CARD IMAGE - NOT VALID FOR BILLING"
+        }
+      ]
+    },
+    {
+      "doc_id": "R03-D9",
+      "doc_type": "benefits_response",
+      "pages": [
+        7
+      ],
+      "date": "2026-09-30",
+      "signed": false,
+      "signer": null,
+      "identifiers": {
+        "name": null,
+        "dob": null,
+        "mrn": null,
+        "packet_id": null,
+        "member_id": "SCMA-SYN-8203"
+      },
+      "fields": {
+        "payer": null,
+        "plan_product_raw": "Summit Crest Medicare Advantage",
+        "member_id": "SCMA-SYN-8203",
+        "response_date": "2026-09-30",
+        "coverage_active_on_eval_date": true,
+        "product_end_date": null
+      },
+      "quotes": [
+        {
+          "field": "response_date",
+          "page": 7,
+          "text": "Response date 2026-09-30"
+        },
+        {
+          "field": "member_id",
+          "page": 7,
+          "text": "SCMA-SYN-8203 / Summit Crest Medicare Advantage"
+        },
+        {
+          "field": "coverage_active_on_eval_date",
+          "page": 7,
+          "text": "Active on 2026-10-01; exact product and member matched."
+        }
+      ]
+    }
+  ],
+  "corrections": []
+}

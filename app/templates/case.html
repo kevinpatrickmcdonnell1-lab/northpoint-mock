@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% from "macros.html" import pri, st, ref_link %}
+{% block title %}{{ s.patient_key }} {{ name }}{% endblock %}
+{% block content %}
+<h1>{{ s.patient_key }} · {{ name }} <span class="muted">{{ ef.packet_id }} · {{ procedure }} · received {{ ef.received_at }} via {{ ef.received_channel|replace('_',' ') }} · site {{ ef.ordering_site or 'unknown' }} · age {{ age }} bd</span></h1>
+
+<section class="cards">
+  <div class="card">
+    <h3>Clinical priority</h3>
+    <p>{{ pri(s.priority.status, s.priority.detail.label) }}</p>
+    <p class="small">{{ s.priority.reason_text }}</p>
+    <p class="small">Source: {% for r in s.priority.evidence_refs %}{{ ref_link(r) }} {% else %}none{% endfor %}</p>
+    <p class="small muted">Independent of payer, coverage, PA and identity.</p>
+  </div>
+  <div class="card">
+    <h3>Identity (ID-1)</h3>
+    <p>{{ st(s.identity.status) }}</p>
+    <p class="small">{{ s.identity.reason_text }}</p>
+    {% for f, e in s.identity.detail.fields.items() if e.status in ('conflicting', 'resolved') %}
+      <div class="conflict">
+        <b>{{ f }}</b> — {{ e.status }}{% if e.status == 'resolved' %}: <b>{{ e.confirmed }}</b> confirmed in Epic ({{ e.epic_reference }}) <span class="sim-badge">SIMULATED – not from PDF</span>{% endif %}
+        <ul>{% for v in e['values'] %}<li><span class="mono">{{ v.value }}</span> · {{ TITLES[v.doc_type] }} · <a class="ref" href="/page/{{ v.file }}/{{ v.page }}">{{ v.file }} p.{{ v.page }}</a></li>{% endfor %}</ul>
+        {% if e.status == 'conflicting' %}<p class="small muted">Never auto-selected. Verify in Epic.</p>{% endif %}
+      </div>
+    {% endfor %}
+  </div>
+  <div class="card">
+    <h3>Coverage (COV-1)</h3>
+    <p>{{ st(s.coverage.status) }} {% if s.coverage.reason_code %}<code>{{ s.coverage.reason_code }}</code>{% endif %}</p>
+    <p class="small">{{ s.coverage.reason_text }}</p>
+    <p class="small">{% for r in s.coverage.evidence_refs %}{{ ref_link(r) }} {% endfor %}</p>
+  </div>
+  <div class="card">
+    <h3>PA requirement</h3>
+    <p>{{ st(s.pa_requirement) }}</p>
+    <p class="small">{{ s.plan.reason_text }}</p>
+    {% if s.plan.status == 'unknown' %}<p class="small muted">Product is never inferred from a member-ID prefix.</p>{% endif %}
+  </div>
+</section>
+
+<section>
+  <h2>Criteria</h2>
+  <p class="small muted">"Not met" is not a denial. "Supported" is not an approval.{% if s.pa_requirement == 'not_required' %} PPO: only {{ s.gates|selectattr('gate','equalto','G-EVID')|map(attribute='basis')|first }}; the rest are shown for visibility.{% endif %}</p>
+  <table>
+    <thead><tr><th>Rule</th><th>Status</th><th>Reason</th><th>Evidence</th></tr></thead>
+    <tbody>
+    {% for k, r in s.criteria.items() %}
+      <tr class="{% if k == 'EVIDENCE' %}total{% endif %}">
+        <td><b>{{ k }}</b></td>
+        <td>{{ st(r.status) }}{% if r.detail.branches %}<div class="small muted">A: {{ r.detail.branches.A }} · B: {{ r.detail.branches.B }}</div>{% endif %}</td>
+        <td class="small">{{ r.reason_text }}{% if r.reason_code %} <code>{{ r.reason_code }}</code>{% endif %}</td>
+        <td class="small">{% if k != 'EVIDENCE' %}{% for e in r.evidence_refs %}{{ ref_link(e) }}<br>{% endfor %}{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="two">
+  <div>
+    <h2>Gates</h2>
+    <table>
+      {% for g in s.gates %}
+      <tr><td><b>{{ g.gate }}</b></td><td>{% if g.passed %}<span class="st st-pass">pass</span>{% else %}<span class="st st-blocked">blocked</span>{% endif %}</td>
+        <td class="small">{{ g.basis }}{% if 'SIMULATED' in g.basis %} <span class="sim-badge">SIMULATED – not from PDF</span>{% endif %}</td>
+        <td class="small muted">blocks {{ g.blocks|join(', ')|replace('_',' ') }}</td></tr>
+      {% endfor %}
+    </table>
+    <p class="small">PA prep ready: <b>{{ 'yes' if s.pa_prep_ready else 'no' }}</b> · Scheduling handoff sendable: <b>{{ 'yes' if s.scheduling_sendable else 'no' }}</b> · Admin readiness: <b>{{ 'reached' if s.admin_ready else 'not reached' }}</b></p>
+  </div>
+  <div>
+    <h2>Next actions</h2>
+    <ol class="actions">
+      {% for a in s.actions %}
+      <li><b>{{ a.action }}</b> → {{ a.owner_role }} <span class="tag">{{ a.tennr_product }}</span> <code>{{ a.reason_code }}</code>
+        {% if a.detail and a.detail != s.priority.reason_text %}<div class="small muted">{{ a.detail }}</div>{% endif %}</li>
+      {% endfor %}
+    </ol>
+    <h2>Handoffs</h2>
+    <div class="buttons wrap">
+      <form method="post" action="/case/{{ s.patient_key }}/handoff/schedule"><button>Send to scheduling</button></form>
+      <form method="post" action="/case/{{ s.patient_key }}/handoff/pa_packet"><button class="secondary">Prepare PA packet</button></form>
+      <form method="post" action="/case/{{ s.patient_key }}/handoff/missing_info"><button class="secondary">Send missing-info request</button></form>
+      <form method="post" action="/case/{{ s.patient_key }}/handoff/triage"><button class="secondary">Notify triage</button></form>
+      <form method="post" action="/case/{{ s.patient_key }}/handoff/identity_task"><button class="secondary">Identity verification task</button></form>
+    </div>
+    {% if outbox %}<ul class="small">{% for o in outbox %}<li><a href="/outbox/{{ o.handoff_id }}">{{ o.handoff_id }}</a> · {{ o.work_item.type }} → {{ o.receiving_system }}</li>{% endfor %}</ul>{% endif %}
+  </div>
+</section>
+
+<section class="simulate">
+  <h2>Simulate… <span class="sim-badge">SIMULATED – not from source PDFs</span></h2>
+  <p class="small">These controls create labelled simulated events (separate, append-only table). They never change PDF evidence, and the engine never creates them.</p>
+  <div class="simgrid">
+    <form method="post" action="/case/{{ s.patient_key }}/simulate">
+      <input type="hidden" name="type" value="PAYER_PA_DECISION"><h4>Payer PA decision</h4>
+      <label>Decision <select name="decision"><option>approved</option><option>pended</option><option>denied</option></select></label>
+      <label>Recorded by <select name="actor_role">{% for r in roles.PAYER_PA_DECISION %}<option>{{ r }}</option>{% endfor %}</select></label>
+      <label>Note <input name="note" placeholder="mock payer reference"></label>
+      <button>Simulate payer decision</button>
+    </form>
+    <form method="post" action="/case/{{ s.patient_key }}/simulate">
+      <input type="hidden" name="type" value="CLINICAL_REVIEW_DECISION"><h4>Clinical review decision</h4>
+      <label>Decision <select name="decision"><option>cleared_for_scheduling</option><option>reviewed_hold</option><option>not_cleared</option></select></label>
+      <label>Role <select name="actor_role">{% for r in roles.CLINICAL_REVIEW_DECISION %}<option>{{ r }}</option>{% endfor %}</select></label>
+      <label>Name <input name="actor_name"></label>
+      <label>Note <input name="note"></label>
+      <button>Simulate clinical decision</button>
+    </form>
+    <form method="post" action="/case/{{ s.patient_key }}/simulate">
+      <input type="hidden" name="type" value="IDENTITY_RESOLUTION"><h4>Identity resolution (Epic)</h4>
+      <input type="hidden" name="actor_role" value="Intake Coordinator">
+      <label>Confirmed DOB <input name="confirmed_dob" placeholder="YYYY-MM-DD"></label>
+      <label>Confirmed member ID <input name="confirmed_member_id"></label>
+      <label>Confirmed name <input name="confirmed_name"></label>
+      <label>Epic reference* <input name="epic_reference" placeholder="EPIC-REG-…"></label>
+      <label>Note* <input name="note"></label>
+      <button>Simulate identity resolution</button>
+    </form>
+    <form method="post" action="/case/{{ s.patient_key }}/simulate">
+      <input type="hidden" name="type" value="BENEFITS_RESPONSE"><h4>New E&amp;B response</h4>
+      <input type="hidden" name="actor_role" value="Insurance Benefits Manager (mock)">
+      <label>Response date <input name="response_date" value="{{ policy.eval_date }}"></label>
+      <label>Payer <input name="payer"></label>
+      <label>Plan product <input name="plan_product_raw" list="products"></label>
+      <datalist id="products">{% for p in products %}<option value="{{ p }}">{% endfor %}</datalist>
+      <label>Member ID <input name="member_id"></label>
+      <label>Active on {{ policy.eval_date }} <select name="active"><option value="true">true</option><option value="false">false</option><option value="">not stated</option></select></label>
+      <label>Product end date <input name="product_end_date" placeholder="optional"></label>
+      <button>Simulate E&amp;B response</button>
+    </form>
+  </div>
+  {% if events %}
+  <h4>Simulated events on this case</h4>
+  <table class="small">{% for e in events %}<tr><td><span class="sim-badge">SIMULATED</span> {{ e.event_id }}</td><td>{{ e.type }}</td><td>{{ e.decision }}</td><td>{{ e.actor_role }}{% if e.actor_name %} ({{ e.actor_name }}){% endif %}</td><td>sim time {{ e.event_time }}</td><td>recorded {{ e.recorded_at }}</td><td>{{ e.note or '' }}</td></tr>{% endfor %}</table>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Documents</h2>
+  <table>
+    <thead><tr><th>Type</th><th>Date</th><th>Signed</th><th>Pages</th><th>Use</th></tr></thead>
+    {% for x in docs %}{% set d = x.d %}
+    <tr class="{% if x.unused %}unused{% endif %}">
+      <td>{{ TITLES[d.doc_type] }}</td><td>{{ d.date or '' }}</td>
+      <td>{% if d.doc_type in ('registration_face_sheet','insurance_card','benefits_response') %}n/a (admin){% elif d.signed %}{{ d.signer }}{% else %}<b>unsigned</b>{% endif %}</td>
+      <td>{% for p in d.pages %}<a class="ref" href="/page/{{ ef.source_file }}/{{ p }}">p.{{ p }}</a> {% endfor %}</td>
+      <td>{% if x.unused %}<span class="chip">{{ x.unused }}</span>{% else %}used by rules{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+
+<section>
+  <h2>Audit trail <span class="muted small">newest first</span></h2>
+  <table class="small audit">
+    {% for a in audit %}
+    <tr><td class="mono">{{ a.at }}</td><td>{{ a.kind }}</td><td>{{ a.actor }}</td>
+      <td>{% set d = a.detail %}
+        {% if a.kind == 'evaluation' %}{{ d.policy_version }} @ {{ d.eval_date }} · holds {{ d.failing_gates|join(', ') or 'none' }} · actions {{ d.actions|join(', ') }}{% if d.diff and not d.diff.initial %} · <b>changed:</b> {{ d.diff.keys()|join(', ') }}{% endif %}
+        {% elif a.kind == 'handoff_blocked' %}<b>blocked</b> {{ d.kind }}: {{ d.failing_gates|join(', ') }}
+        {% elif a.kind == 'sim_event' %}<span class="sim-badge">SIMULATED</span> {{ d.event_id }} {{ d.type }} {{ d.decision }}
+        {% elif a.kind == 'state_change' %}{{ d.diff.keys()|join(', ') }}
+        {% else %}{{ d.kind }} {{ d.handoff_id or '' }}{% endif %}
+      </td></tr>
+    {% endfor %}
+  </table>
+</section>
+{% endblock %}

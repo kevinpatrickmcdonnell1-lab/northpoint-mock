@@ -1,0 +1,112 @@
+# Build log
+
+Agent mistakes found and fixed, plus environment deviations. Each entry says what happened, how it was caught and how the fix was verified. Real entries only; nothing here is scripted.
+
+## 2026-11-24 · Phase 0 (scaffold, configs, models)
+
+### 1. `date` field shadowed the `date` type (code bug)
+- **What:** `Document.date: Optional[date]` and `PriorStressEcho.date: Optional[date]`. Inside a class body, the field name `date` rebinds the name, so pydantic resolved the annotation to `Optional[None]` and rejected every real date.
+- **Caught by:** `test_sample_validates_and_types_fields` (PLAN §5.1 sample) failed with `documents.0.date: Input should be None`.
+- **Fix:** module alias `Date = date`, used for both fields.
+- **Verified:** the sample test passes. Regression test `test_date_named_fields_accept_dates` covers `prior_stress_echo.date`, which the §5.1 sample does not exercise. That bug would otherwise have surfaced later as a confusing REPEAT-1 failure on P02/P07.
+
+### 2. Dependency deviation: pdfplumber dropped (environment)
+- **What:** `uv sync` failed. pdfplumber → pdfminer.six → `cryptography` 50.x has no prebuilt wheel for this machine (macOS 12, x86_64) and tried to compile Rust from source.
+- **Decision:** remove pdfplumber. pypdf handles page text.
+- **Verified:** `make setup` completes; `make test` passes.
+
+### 3. Dependency deviation: pypdfium2 instead of pdftoppm (environment)
+- **What:** poppler (`pdftoppm`) is not installed and Homebrew isn't available. Page PNGs are rendered with pypdfium2 (pip wheel, no system dependency). Same output: one PNG per page.
+
+## 2026-11-24 · Phase 1 (extractions, mock PDFs, ingest, check)
+
+### 4. pypdfium2 rebuilt from source on every `uv run` (environment)
+- **What:** the latest pypdfium2 (5.15.2) has no wheel for this platform. Every `uv run` printed "Building pypdfium2", adding seconds to each script and to `make demo`.
+- **Caught by:** watching the `make mock/ingest/check` output.
+- **Fix:** pinned `pypdfium2==4.30.0`, which ships a compatible wheel.
+- **Verified:** `uv run` starts in ~1s; PNGs still render (P07 p.8 inspected visually: unsigned-draft label and synthetic footer present).
+
+## 2026-11-24 · Phases 2–3 (tests first, then engine)
+
+- `test_golden_ten.py`, `test_rules.py` (boundaries, single-fact flips, traps) and `test_policy_dates.py` were written before any rule code. They failed with `ModuleNotFoundError: app.engine`, the right reason.
+- The engine reproduced every §6.3 cell on its first run, so there was no extraction, rule-reading or code mismatch to report. Because a first-run pass can also mean the tests are too loose, I:
+  - tightened `test_raw_tracing_ignored` from "equal except criteria" to **full state equality** (it still passes);
+  - printed every case's statuses, reason texts and actions and read them against §6.2/§6.3.
+- **Reason-text fixes found by that read-through** (not caught by tests, since the statuses were right):
+  - P04's ID_CONFLICT text repeated a value for every page. It now groups pages per distinct value ("1951-03-14 (p.1, 2, 6, 7) vs 1951-04-13 (p.3)").
+  - P01's priority text said only "consistent signed sources". It now states that the 09-10 increase falls outside the 14-day window [09-17, 10-01], which is the story P01 exists to show.
+- Interpretation calls B7–B13 (see `assumptions.md`) were decided while writing the rules, not adjusted afterwards.
+
+## 2026-11-24 · Phases 4–6 (store, handoffs, UI, demo)
+
+### 5. Simulated-event badge missing on gates (UI bug)
+- **What:** after a simulated payer approval, the G-PA-APPROVED gate showed a short "SIMULATED" chip. The spec requires "SIMULATED – not from PDF" next to anything derived from an event.
+- **Caught by:** `tests/test_app.py::test_p01_walkthrough`.
+- **Fix:** the gate badge now uses the full label.
+- **Verified:** the test passes.
+
+### 6. Port 8000 already in use (environment)
+- **What:** another local process (likely the bookly-agent app) was listening on :8000, so the first live walkthrough hit the wrong server.
+- **Caught by:** the uvicorn log (`[Errno 48] address already in use`).
+- **Fix:** `make demo PORT=8010` (the Makefile port defaults to 8000). The other process was left running.
+
+### 7. Two wrong expectations of mine during the live walkthrough (no code change)
+- `curl -X POST -L` re-POSTed to the redirect target and got a 405, so the flash messages looked missing. Browsers switch to GET on a 303. The redirect URL carried the correct "BLOCKED … G-PA-APPROVED" message.
+- Median admin readiness showed 7, where I expected 8. The engine was right: P08 is admin-ready because clinical clearance is excluded (§7.3), so the median is over {9, 7, 4}.
+
+## 2026-11-24/25 · Phase 7 readiness + Stretch
+
+### 8. Draft extractor misfiled two clinician notes as ECG reports (code bug)
+- **What:** `extract_draft.py` guessed doc type by keyword over the whole page. P03's note says "Resting ECG reviewed in clinic", and P10's says "No exercise ECG in the past 12 months", so both were drafted as ECG reports. This is the same mention-without-report trap the QUAL-2 rule guards against.
+- **Caught by:** `test_extract_draft_on_all_mock_packets_types` (70/72 types correct).
+- **Fix:** classify from the page heading (short all-caps lines) first, and fall back to body text only if no heading matches.
+- **Verified:** 72/72 on the mock set. Real pages will differ, which is why drafts must be reviewed by a human and can never be loaded.
+
+### 9. Append-only test passed vacuously (test bug)
+- **What:** `UPDATE deliveries …` on an empty table touches zero rows, so the trigger never fired and the test reported "DID NOT RAISE".
+- **Fix:** the test now creates a delivery row first. The trigger was correct all along.
+
+### 10. Two full test runs exceeded the 180 s tool timeout (slow start, not a hang)
+- Two `uv run pytest` runs went past 180 s of wall-clock time. The second one finished on its own: "217 passed, 2 skipped … in 36.07s". So the extra time was spent before pytest started (`uv run` environment startup on this machine), not in a test. Other runs take 5–9 s. Recorded so a slow `make test` right before the demo isn't mistaken for a failure.
+
+### Layout change (PLAN §6.4.4, done ahead of the real PDFs)
+- The mock set moved to `data/packets/mock/` and `data/extractions/mock/` and is the permanent regression suite. The engine and UI select the real set automatically once `data/extractions/*.json` exists.
+
+## 2026-11-25 · Phase 7: real packets (PLAN §6.4)
+
+- **Order of work, as §6.4.3 requires:** read all ten real packets, wrote `tests/golden_real.yaml` by hand (with the reasoning per row), and only then wrote the extractions and ran the engine.
+- **Result:** the engine reproduced all ten hand-derived rows on the first run (statuses + ordered actions). A read-through of every reason text against the pages found one cosmetic issue (R01's conflict text listed "p.2, 2" because the referral and order share a page), now fixed.
+- **The real set is very different from the mock set:** 0 sendable, 2 PA-prep ready (R02, R07), 8 held. R07 is PRI-1 *and* PA-prep ready, which shows that clinical holds never block PA prep.
+
+### 11. Model gaps the real pages exposed (rule-reading/extraction, not code bugs)
+Found while extracting, before the engine ran. Each change keeps the mock regression suite green (136 → 228 tests total).
+- `received_channel` had no value for "not stated". Only R01 says fax, so `not_stated` was added.
+- QUAL-1 matched the order's indication by keyword ("exertional"). R02's order says "chest pressure with uphill walking", which is exertional without the word. Orders now carry `indication_type`, classified at extraction like a note's `complaint_type`. The text match is kept only as a fallback.
+- REPEAT-1 read only the assessment. In 8 packets the prior-stress-echo history comes in a separate signed 10-01 addendum ("no stress echocardiogram … 2026-04-04 through 2026-10-01"). It now uses the assessment's statement, else the newest signed clinician addendum that states it.
+- DOC-1 gave the generic "no signed order" message when an order exists but names no indication (R01). It now asks for a corrected order naming the indication.
+- `extraction_method: llm_draft_unverified` was added, so drafted facts are labelled honestly until a person verifies them.
+
+### 12. Real dataset activated before its PDFs existed (code bug)
+- **What:** the dataset switch turned on as soon as real extraction JSONs existed. The PDFs were supplied in chat, not on disk, so the app would have switched to the real set with a broken page viewer, and `make check` failed with 252 "not ingested" errors.
+- **Caught by:** `test_dataset_switch` failing, plus the check output.
+- **Fix:** the real set activates only when every cited source PDF is in `data/packets/`. Until then `make check` warns and lists the missing files.
+- **Verified:** active dataset = mock; `make check` passes with the warning; 228 tests pass.
+
+### 13. Real PDFs ingested and quote-checked (2026-11-25)
+- The user put the ten PDFs in `data/packets/02 Patient PDFs/`. Ingest only reads `data/packets/*.pdf`, so they were moved up one level (same file names; nothing else touched).
+- `make ingest`: 86 pages (R01 9, R09 8, others 7). The page counts match every page number cited in the extractions.
+- `check_extractions.py real`: **0 errors**. Every quote in R01–R10 was found on its cited page, so the extractions written from the chat text line up with the real files.
+- **Not vacuous:** spot checks (R01 p.3 DOB 06/21/1958, R10 p.7 termination line, R09 p.5 prior stress echo sentence), plus a negative control: a made-up quote was rejected ("quote not on p.2").
+- The app switched to the real set automatically (B24). Seed: 0 sendable, 2 PA-prep ready, 8 held. A live HTTP walkthrough worked: queue, R01 conflicting DOBs with pages, R01 "names the procedure but no indication", page viewer highlight on the real page image, R02 PA packet sent, R05 scheduling blocked by G-CLIN and audited.
+- **Human sign-off (PLAN §6.4.2):** Kevin reviewed the extractions against the pages using `docs/extraction_review.md` and replied "verified" with no corrections on 2026-11-25. All ten are now `llm_draft_human_verified`; `corrections[]` stays empty. Re-checked afterwards: quote check 0 errors (mock + real), 228 tests pass.
+
+### 14. Review sheet regenerated during sign-off (my mistake)
+- **What:** when Kevin said "verified", the same command that read the sheet's tick state also re-ran `review_sheet.py`, overwriting the sheet before any edits besides ticks could be compared.
+- **Caught by:** re-reading my own command output.
+- **Impact: none.** All ten boxes were unticked when read, no corrections were given, and VS Code and Cursor local history (which keep a copy on every save) hold no saved version of `extraction_review.md`. The sheet was never edited and saved before it was regenerated, so nothing was lost.
+- **Lesson:** read and diff user-edited files before regenerating them.
+
+## Verification summary
+- `make test`: 228 tests, including the hand-derived real golden table (10 rows). Earlier counts: 194, then 217. Golden table, window boundaries, single-fact flips, invariants (gate leaks, no events from the engine, no derived keys, immutable sources via SQLite triggers, mutation tests on priority and unsigned docs, reason/evidence completeness, determinism, no patient-specific code), the four scripted transitions, an HTTP walkthrough of P01/P03/P04/P05/P08, and quote-on-page checks for all ten packets.
+- `make reset mock ingest check seed` from clean: ~5 s.
+- Live server walkthrough of P01 over HTTP: blocked → PA packet → simulated approval → sent → already recorded; metrics showed 0 gate leaks; reset cleared the outbox.

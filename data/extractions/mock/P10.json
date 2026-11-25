@@ -1,0 +1,326 @@
+{
+  "packet_id": "NP-PKT-0010",
+  "patient_key": "P10",
+  "source_file": "P10_packet.pdf",
+  "received_at": "2026-09-14",
+  "received_channel": "epic_wq",
+  "ordering_site": "Northpoint Main",
+  "extraction_method": "mock_authored",
+  "documents": [
+    {
+      "doc_id": "P10-D1",
+      "doc_type": "referral",
+      "pages": [
+        1
+      ],
+      "date": "2026-09-14",
+      "signed": true,
+      "signer": "H. Sato, MD",
+      "identifiers": {
+        "name": "Karl Jensen",
+        "dob": "1957-11-21",
+        "mrn": "NP-101777",
+        "packet_id": "NP-PKT-0010",
+        "member_id": null
+      },
+      "fields": {
+        "urgent_review_requested": false,
+        "urgent_reason": null,
+        "expedited_review_requested": false,
+        "material_increase_date": null,
+        "symptom_trajectory": "not_stated",
+        "timing_text": "Intermittent sharp chest pain, worse with deep breathing and lying flat, not related to exertion.",
+        "referral_id": "REF-0010",
+        "service_requested": "stress_echo"
+      },
+      "quotes": [
+        {
+          "field": "service_requested",
+          "page": 1,
+          "text": "Service requested: outpatient stress echocardiogram"
+        },
+        {
+          "field": "timing_text",
+          "page": 1,
+          "text": "Intermittent sharp chest pain, worse with deep breathing and lying flat, not related to exertion."
+        }
+      ]
+    },
+    {
+      "doc_id": "P10-D2",
+      "doc_type": "stress_echo_order",
+      "pages": [
+        2
+      ],
+      "date": "2026-09-14",
+      "signed": true,
+      "signer": "H. Sato, MD",
+      "identifiers": {
+        "name": "Karl Jensen",
+        "dob": "1957-11-21",
+        "mrn": "NP-101777",
+        "packet_id": "NP-PKT-0010",
+        "member_id": null
+      },
+      "fields": {
+        "procedure": "Outpatient stress echocardiogram",
+        "indication": "chest pain"
+      },
+      "quotes": [
+        {
+          "field": "procedure",
+          "page": 2,
+          "text": "Procedure: Outpatient stress echocardiogram"
+        },
+        {
+          "field": "indication",
+          "page": 2,
+          "text": "Indication: chest pain"
+        }
+      ]
+    },
+    {
+      "doc_id": "P10-D3",
+      "doc_type": "registration_face_sheet",
+      "pages": [
+        3
+      ],
+      "date": "2026-09-14",
+      "signed": false,
+      "signer": null,
+      "identifiers": {
+        "name": "Karl Jensen",
+        "dob": "1957-11-21",
+        "mrn": "NP-101777",
+        "packet_id": null,
+        "member_id": "LCH-4420-1189"
+      },
+      "fields": {
+        "payer": "Lakeshore Community Health",
+        "plan_product_raw": "LCH Managed Medicaid",
+        "member_id": "LCH-4420-1189"
+      },
+      "quotes": [
+        {
+          "field": "plan_product_raw",
+          "page": 3,
+          "text": "Plan product: LCH Managed Medicaid"
+        },
+        {
+          "field": "member_id",
+          "page": 3,
+          "text": "Member ID: LCH-4420-1189"
+        }
+      ]
+    },
+    {
+      "doc_id": "P10-D4",
+      "doc_type": "insurance_card",
+      "pages": [
+        4
+      ],
+      "date": "2026-09-14",
+      "signed": false,
+      "signer": null,
+      "identifiers": {
+        "name": "Karl Jensen",
+        "dob": null,
+        "mrn": null,
+        "packet_id": null,
+        "member_id": "LCH-4420-1189"
+      },
+      "fields": {
+        "payer": "Lakeshore Community Health",
+        "plan_product_raw": "LCH Managed Medicaid",
+        "member_id": "LCH-4420-1189"
+      },
+      "quotes": [
+        {
+          "field": "plan_product_raw",
+          "page": 4,
+          "text": "Plan product: LCH Managed Medicaid"
+        },
+        {
+          "field": "member_id",
+          "page": 4,
+          "text": "Member ID: LCH-4420-1189"
+        }
+      ]
+    },
+    {
+      "doc_id": "P10-D5",
+      "doc_type": "benefits_response",
+      "pages": [
+        5
+      ],
+      "date": "2026-09-17",
+      "signed": false,
+      "signer": null,
+      "identifiers": {
+        "name": "Karl Jensen",
+        "dob": "1957-11-21",
+        "mrn": null,
+        "packet_id": null,
+        "member_id": "LCH-4420-1189"
+      },
+      "fields": {
+        "payer": "Lakeshore Community Health",
+        "plan_product_raw": "LCH Managed Medicaid",
+        "member_id": "LCH-4420-1189",
+        "response_date": "2026-09-17",
+        "coverage_active_on_eval_date": true,
+        "product_end_date": null
+      },
+      "quotes": [
+        {
+          "field": "response_date",
+          "page": 5,
+          "text": "Eligibility & benefits response date: 2026-09-17"
+        },
+        {
+          "field": "plan_product_raw",
+          "page": 5,
+          "text": "Plan product: LCH Managed Medicaid"
+        },
+        {
+          "field": "member_id",
+          "page": 5,
+          "text": "Member ID: LCH-4420-1189"
+        },
+        {
+          "field": "coverage_active_on_eval_date",
+          "page": 5,
+          "text": "Coverage on 2026-10-01: ACTIVE"
+        }
+      ]
+    },
+    {
+      "doc_id": "P10-D6",
+      "doc_type": "clinician_note",
+      "pages": [
+        6
+      ],
+      "date": "2026-09-14",
+      "signed": true,
+      "signer": "H. Sato, MD",
+      "identifiers": {
+        "name": "Karl Jensen",
+        "dob": "1957-11-21",
+        "mrn": "NP-101777",
+        "packet_id": "NP-PKT-0010",
+        "member_id": null
+      },
+      "fields": {
+        "urgent_review_requested": false,
+        "urgent_reason": null,
+        "expedited_review_requested": false,
+        "material_increase_date": null,
+        "symptom_trajectory": "not_stated",
+        "timing_text": "Intermittent sharp chest pain, worse with deep breathing and lying flat, not related to exertion.",
+        "is_assessment": true,
+        "assessment_complete": true,
+        "symptom_course_documented": true,
+        "relevant_history_documented": true,
+        "complaint_type": "nonexertional",
+        "ischemia_concern": "explicit_no",
+        "prior_stress_echo": {
+          "stated": true,
+          "date": null
+        },
+        "interval_change_after_prior": null,
+        "repeat_rationale": null,
+        "tests_mentioned_without_report": [],
+        "exercise_ecg_history": {
+          "stated": true,
+          "none_since": "2025-10-01"
+        }
+      },
+      "quotes": [
+        {
+          "field": "complaint_type",
+          "page": 6,
+          "text": "Intermittent sharp chest pain, worse with deep breathing and lying flat, not related to exertion."
+        },
+        {
+          "field": "ischemia_concern",
+          "page": 6,
+          "text": "Low concern for ischemia."
+        },
+        {
+          "field": "exercise_ecg_history",
+          "page": 6,
+          "text": "No exercise ECG in the past 12 months."
+        },
+        {
+          "field": "prior_stress_echo",
+          "page": 6,
+          "text": "No prior stress echocardiogram."
+        }
+      ]
+    },
+    {
+      "doc_id": "P10-D7",
+      "doc_type": "resting_ecg_report",
+      "pages": [
+        7
+      ],
+      "date": "2026-08-30",
+      "signed": true,
+      "signer": "H. Sato, MD",
+      "identifiers": {
+        "name": "Karl Jensen",
+        "dob": "1957-11-21",
+        "mrn": "NP-101777",
+        "packet_id": null,
+        "member_id": null
+      },
+      "fields": {
+        "test_date": "2026-08-30",
+        "clinician_interpreted": true,
+        "interpretation": "normal",
+        "complete": true
+      },
+      "quotes": [
+        {
+          "field": "test_date",
+          "page": 7,
+          "text": "Resting 12-lead ECG performed 2026-08-30"
+        },
+        {
+          "field": "interpretation",
+          "page": 7,
+          "text": "Clinician interpretation: normal"
+        }
+      ]
+    },
+    {
+      "doc_id": "P10-D8",
+      "doc_type": "ecg_tracing_raw",
+      "pages": [
+        8
+      ],
+      "date": "2026-08-30",
+      "signed": false,
+      "signer": null,
+      "identifiers": {
+        "name": "Karl Jensen",
+        "dob": "1957-11-21",
+        "mrn": null,
+        "packet_id": null,
+        "member_id": null
+      },
+      "fields": {
+        "test_date": "2026-08-30",
+        "machine_statement": "ABNORMAL ECG \u2013 possible ST depression \u2013 unconfirmed"
+      },
+      "quotes": [
+        {
+          "field": "machine_statement",
+          "page": 8,
+          "text": "ABNORMAL ECG \u2013 possible ST depression \u2013 unconfirmed"
+        }
+      ]
+    }
+  ],
+  "corrections": []
+}

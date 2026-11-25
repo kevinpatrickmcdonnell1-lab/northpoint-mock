@@ -1,0 +1,18 @@
+# FORMAT EXAMPLE ONLY. Copy to tests/golden_real.yaml and fill it in BY HAND from the real
+# pages before running the engine on them (PLAN §6.4.3). Do not copy values from the mock table.
+# Keys you list are compared; omit a key to leave it unchecked.
+# priority: PRI-1..PRI-4 · identity: verified|pending|conflicting
+# coverage: verified|pending|conflicting|inactive · pa: required|not_required|unknown
+# DOC-1/QUAL-1/QUAL-2/REPEAT-1/HMO-1/EVIDENCE: S|NM|I|NA · actions: ordered reason codes
+EXAMPLE-KEY:
+  priority: PRI-3
+  identity: verified
+  coverage: verified
+  pa: required
+  DOC-1: S
+  QUAL-1: S
+  QUAL-2: S
+  REPEAT-1: S
+  HMO-1: NA
+  EVIDENCE: S
+  actions: [PA_READY]

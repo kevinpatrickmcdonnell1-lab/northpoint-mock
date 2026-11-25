@@ -1,0 +1,319 @@
+{
+  "packet_id": "NP-PKT-0003",
+  "patient_key": "P03",
+  "source_file": "P03_packet.pdf",
+  "received_at": "2026-09-15",
+  "received_channel": "fax",
+  "ordering_site": "Northpoint Main",
+  "extraction_method": "mock_authored",
+  "documents": [
+    {
+      "doc_id": "P03-D1",
+      "doc_type": "referral",
+      "pages": [
+        1
+      ],
+      "date": "2026-09-15",
+      "signed": true,
+      "signer": "T. Brandt, MD",
+      "identifiers": {
+        "name": "Rosa Castellano",
+        "dob": "1959-12-05",
+        "mrn": "NP-100518",
+        "packet_id": "NP-PKT-0003",
+        "member_id": null
+      },
+      "fields": {
+        "urgent_review_requested": false,
+        "urgent_reason": null,
+        "expedited_review_requested": false,
+        "material_increase_date": null,
+        "symptom_trajectory": "not_stated",
+        "timing_text": "Exertional chest pressure for 1 month. Routine.",
+        "referral_id": "REF-0003",
+        "service_requested": "stress_echo"
+      },
+      "quotes": [
+        {
+          "field": "service_requested",
+          "page": 1,
+          "text": "Service requested: outpatient stress echocardiogram"
+        },
+        {
+          "field": "timing_text",
+          "page": 1,
+          "text": "Exertional chest pressure for 1 month. Routine."
+        }
+      ]
+    },
+    {
+      "doc_id": "P03-D2",
+      "doc_type": "stress_echo_order",
+      "pages": [
+        2
+      ],
+      "date": "2026-09-15",
+      "signed": true,
+      "signer": "T. Brandt, MD",
+      "identifiers": {
+        "name": "Rosa Castellano",
+        "dob": "1959-12-05",
+        "mrn": "NP-100518",
+        "packet_id": "NP-PKT-0003",
+        "member_id": null
+      },
+      "fields": {
+        "procedure": "Outpatient stress echocardiogram",
+        "indication": "exertional chest pressure; concern for possible coronary ischemia"
+      },
+      "quotes": [
+        {
+          "field": "procedure",
+          "page": 2,
+          "text": "Procedure: Outpatient stress echocardiogram"
+        },
+        {
+          "field": "indication",
+          "page": 2,
+          "text": "Indication: exertional chest pressure; concern for possible coronary ischemia"
+        }
+      ]
+    },
+    {
+      "doc_id": "P03-D3",
+      "doc_type": "registration_face_sheet",
+      "pages": [
+        3
+      ],
+      "date": "2026-09-15",
+      "signed": false,
+      "signer": null,
+      "identifiers": {
+        "name": "Rosa Castellano",
+        "dob": "1959-12-05",
+        "mrn": "NP-100518",
+        "packet_id": null,
+        "member_id": "LCH-7731-0042"
+      },
+      "fields": {
+        "payer": "Lakeshore Community Health",
+        "plan_product_raw": "LCH Managed Medicaid",
+        "member_id": "LCH-7731-0042"
+      },
+      "quotes": [
+        {
+          "field": "plan_product_raw",
+          "page": 3,
+          "text": "Plan product: LCH Managed Medicaid"
+        },
+        {
+          "field": "member_id",
+          "page": 3,
+          "text": "Member ID: LCH-7731-0042"
+        }
+      ]
+    },
+    {
+      "doc_id": "P03-D4",
+      "doc_type": "insurance_card",
+      "pages": [
+        4
+      ],
+      "date": "2026-09-15",
+      "signed": false,
+      "signer": null,
+      "identifiers": {
+        "name": "Rosa Castellano",
+        "dob": null,
+        "mrn": null,
+        "packet_id": null,
+        "member_id": "LCH-7731-0042"
+      },
+      "fields": {
+        "payer": "Lakeshore Community Health",
+        "plan_product_raw": "LCH Managed Medicaid",
+        "member_id": "LCH-7731-0042"
+      },
+      "quotes": [
+        {
+          "field": "plan_product_raw",
+          "page": 4,
+          "text": "Plan product: LCH Managed Medicaid"
+        },
+        {
+          "field": "member_id",
+          "page": 4,
+          "text": "Member ID: LCH-7731-0042"
+        }
+      ]
+    },
+    {
+      "doc_id": "P03-D5",
+      "doc_type": "benefits_response",
+      "pages": [
+        5
+      ],
+      "date": "2026-08-15",
+      "signed": false,
+      "signer": null,
+      "identifiers": {
+        "name": "Rosa Castellano",
+        "dob": "1959-12-05",
+        "mrn": null,
+        "packet_id": null,
+        "member_id": "LCH-7731-0042"
+      },
+      "fields": {
+        "payer": "Lakeshore Community Health",
+        "plan_product_raw": "Lakeshore Community Health Managed Medicaid",
+        "member_id": "LCH-7731-0042",
+        "response_date": "2026-08-15",
+        "coverage_active_on_eval_date": true,
+        "product_end_date": null
+      },
+      "quotes": [
+        {
+          "field": "response_date",
+          "page": 5,
+          "text": "Eligibility & benefits response date: 2026-08-15"
+        },
+        {
+          "field": "plan_product_raw",
+          "page": 5,
+          "text": "Plan product: Lakeshore Community Health Managed Medicaid"
+        },
+        {
+          "field": "member_id",
+          "page": 5,
+          "text": "Member ID: LCH-7731-0042"
+        },
+        {
+          "field": "coverage_active_on_eval_date",
+          "page": 5,
+          "text": "Coverage on 2026-10-01: ACTIVE"
+        }
+      ]
+    },
+    {
+      "doc_id": "P03-D6",
+      "doc_type": "clinician_note",
+      "pages": [
+        6
+      ],
+      "date": "2026-09-15",
+      "signed": true,
+      "signer": "T. Brandt, MD",
+      "identifiers": {
+        "name": "Rosa Castellano",
+        "dob": "1959-12-05",
+        "mrn": "NP-100518",
+        "packet_id": "NP-PKT-0003",
+        "member_id": null
+      },
+      "fields": {
+        "urgent_review_requested": false,
+        "urgent_reason": null,
+        "expedited_review_requested": false,
+        "material_increase_date": null,
+        "symptom_trajectory": "not_stated",
+        "timing_text": "Exertional chest pressure for 1 month.",
+        "is_assessment": true,
+        "assessment_complete": true,
+        "symptom_course_documented": true,
+        "relevant_history_documented": true,
+        "complaint_type": "exertional_chest_discomfort",
+        "ischemia_concern": "explicit_yes",
+        "prior_stress_echo": {
+          "stated": true,
+          "date": null
+        },
+        "interval_change_after_prior": null,
+        "repeat_rationale": null,
+        "tests_mentioned_without_report": [
+          "resting ECG"
+        ],
+        "exercise_ecg_history": {
+          "stated": false,
+          "none_since": null
+        }
+      },
+      "quotes": [
+        {
+          "field": "complaint_type",
+          "page": 6,
+          "text": "Exertional chest pressure for 1 month."
+        },
+        {
+          "field": "ischemia_concern",
+          "page": 6,
+          "text": "Concern for possible coronary ischemia."
+        },
+        {
+          "field": "tests_mentioned_without_report",
+          "page": 6,
+          "text": "Resting ECG reviewed in clinic."
+        },
+        {
+          "field": "prior_stress_echo",
+          "page": 6,
+          "text": "No prior stress echocardiogram."
+        }
+      ]
+    },
+    {
+      "doc_id": "P03-D7",
+      "doc_type": "clinician_note",
+      "pages": [
+        7
+      ],
+      "date": "2026-09-29",
+      "signed": true,
+      "signer": "A. Lindqvist, MD",
+      "identifiers": {
+        "name": "Rosa Castellano",
+        "dob": "1959-12-05",
+        "mrn": "NP-100518",
+        "packet_id": "NP-PKT-0003",
+        "member_id": null
+      },
+      "fields": {
+        "urgent_review_requested": true,
+        "urgent_reason": "new_symptoms_at_rest",
+        "expedited_review_requested": false,
+        "material_increase_date": "2026-09-27",
+        "symptom_trajectory": "worsening",
+        "timing_text": "New episodes of chest pain at rest since 2026-09-27.",
+        "is_assessment": false,
+        "assessment_complete": false,
+        "symptom_course_documented": false,
+        "relevant_history_documented": false,
+        "complaint_type": "not_stated",
+        "ischemia_concern": "not_stated",
+        "prior_stress_echo": {
+          "stated": false,
+          "date": null
+        },
+        "interval_change_after_prior": null,
+        "repeat_rationale": null,
+        "tests_mentioned_without_report": [],
+        "exercise_ecg_history": {
+          "stated": false,
+          "none_since": null
+        }
+      },
+      "quotes": [
+        {
+          "field": "timing_text",
+          "page": 7,
+          "text": "New episodes of chest pain at rest since 2026-09-27."
+        },
+        {
+          "field": "urgent_review_requested",
+          "page": 7,
+          "text": "Requesting urgent cardiology review."
+        }
+      ]
+    }
+  ],
+  "corrections": []
+}

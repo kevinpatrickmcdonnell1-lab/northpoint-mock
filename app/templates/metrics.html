@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Metrics{% endblock %}
+{% block content %}
+<h1>Metrics <span class="muted small">10-case mock illustration, not a forecast</span></h1>
+<p class="small">Shows how the pilot KPIs would be instrumented, not what they would be. Evaluated as of {{ m.eval_date }}.</p>
+
+<section class="cards">
+  <div class="card"><h3>Gate leaks</h3><p class="big {% if m.gate_leaks == 0 %}good{% else %}bad{% endif %}">{{ m.gate_leaks }}</p><p class="small">Orders that reached scheduling with an open gate (must be 0).</p></div>
+  <div class="card"><h3>Blocked handoff attempts</h3><p class="big">{{ m.blocked_attempts }}</p><p class="small">Each one recorded with its failing gates.</p></div>
+  <div class="card"><h3>Median admin readiness</h3><p class="big">{{ m.median_ready_bd if m.median_ready_bd is not none else '—' }}</p><p class="small">Business days, receipt → readiness (A7). Clinical clearance excluded.</p></div>
+  <div class="card"><h3>Urgent triage notifications</h3><p class="big">{{ m.triage_notifications }}</p><p class="small">Sent to Epic In Basket (mock).</p></div>
+</section>
+
+<section class="two">
+  <div>
+    <h2>Cases by state</h2>
+    <table>{% for k, v in m.counts.items() %}<tr><td>{{ k }}</td><td class="num">{{ v }}</td></tr>{% endfor %}</table>
+    <h2>Aging of cases not yet admin-ready</h2>
+    <table>{% for k, v in m.aging.items() %}<tr><td>{{ k }} business days</td><td class="num">{{ v }}</td><td><span class="bar" style="width: {{ v * 24 }}px"></span></td></tr>{% endfor %}</table>
+    <h2>Admin readiness reached</h2>
+    <table class="small"><tr><th>Case</th><th>Received</th><th>Ready</th><th>Business days</th></tr>
+      {% for k, r, d, bd in m.ready_rows %}<tr><td><a href="/case/{{ k }}">{{ k }}</a></td><td>{{ r }}</td><td>{{ d }}</td><td class="num">{{ bd }}</td></tr>{% endfor %}</table>
+  </div>
+  <div>
+    <h2>Open items by reason code</h2>
+    <table>{% for k, v in m.holds %}<tr><td><code>{{ k }}</code></td><td class="num">{{ v }}</td><td><span class="bar" style="width: {{ v * 24 }}px"></span></td></tr>{% endfor %}</table>
+    <h2>Handoff delivery <span class="muted small">(Stretch: retry / dead-letter)</span></h2>
+    <table>{% for k, v in m.deliveries.items() %}<tr><td>{{ k|replace('_',' ') }}</td><td class="num">{{ v }}</td></tr>{% endfor %}</table>
+    <h2>By ordering site <span class="muted small">(site variance; never used by rules)</span></h2>
+    <table><tr><th>Site</th><th>Cases</th><th>Held</th><th>Open PA/doc gaps</th></tr>
+      {% for site, c in m.by_site.items() %}<tr><td><a href="/?site={{ quote_plus(site) }}">{{ site }}</a></td><td class="num">{{ c.cases }}</td><td class="num">{{ c.held }}</td><td class="num">{{ c['open PA/doc gaps'] }}</td></tr>{% endfor %}</table>
+    <h2>Workload by owner</h2>
+    <table>{% for k, v in m.owners %}<tr><td>{{ k }}</td><td class="num">{{ v }}</td><td><span class="bar" style="width: {{ v * 24 }}px"></span></td></tr>{% endfor %}</table>
+  </div>
+</section>
+{% endblock %}

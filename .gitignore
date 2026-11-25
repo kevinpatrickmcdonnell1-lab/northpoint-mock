@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.db
+*.db-*
+data/pages/*
+!data/pages/.gitkeep
+outbox/*.json
+.DS_Store

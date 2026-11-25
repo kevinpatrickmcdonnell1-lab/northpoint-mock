@@ -1,0 +1,12 @@
+{% macro pri(status, label) -%}
+<span class="badge pri {{ status|lower }}">{{ status }} {{ label }}</span>
+{%- endmacro %}
+
+{% macro st(status) -%}
+<span class="st st-{{ status|lower|replace('_','-') }}">{{ STATUS_WORDS.get(status, status|replace('_',' ')) }}</span>
+{%- endmacro %}
+
+{% macro ref_link(r) -%}
+{% if r.event_id %}<span class="sim-badge">SIMULATED – not from PDF · {{ r.event_id }}</span>
+{% else %}<a class="ref" href="/page/{{ r.file }}/{{ r.page }}{% if r.quote %}?q={{ quote_plus(r.quote) }}{% endif %}">{{ r.file }} p.{{ r.page }}</a>{% endif %}
+{%- endmacro %}

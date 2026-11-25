@@ -1,0 +1,298 @@
+{
+  "packet_id": "NP-PKT-0006",
+  "patient_key": "P06",
+  "source_file": "P06_packet.pdf",
+  "received_at": "2026-09-24",
+  "received_channel": "fax",
+  "ordering_site": "Riverside",
+  "extraction_method": "mock_authored",
+  "documents": [
+    {
+      "doc_id": "P06-D1",
+      "doc_type": "referral",
+      "pages": [
+        1
+      ],
+      "date": "2026-09-20",
+      "signed": true,
+      "signer": "D. Haddad, MD",
+      "identifiers": {
+        "name": "Sami Farouk",
+        "dob": "1980-10-02",
+        "mrn": "NP-101122",
+        "packet_id": "NP-PKT-0006",
+        "member_id": null
+      },
+      "fields": {
+        "urgent_review_requested": false,
+        "urgent_reason": null,
+        "expedited_review_requested": false,
+        "material_increase_date": null,
+        "symptom_trajectory": "not_stated",
+        "timing_text": null,
+        "referral_id": "REF-0006",
+        "service_requested": "stress_echo"
+      },
+      "quotes": [
+        {
+          "field": "service_requested",
+          "page": 1,
+          "text": "Service requested: outpatient stress echocardiogram"
+        }
+      ]
+    },
+    {
+      "doc_id": "P06-D2",
+      "doc_type": "stress_echo_order",
+      "pages": [
+        2
+      ],
+      "date": "2026-09-24",
+      "signed": true,
+      "signer": "D. Haddad, MD",
+      "identifiers": {
+        "name": "Sami Farouk",
+        "dob": "1980-10-02",
+        "mrn": "NP-101122",
+        "packet_id": "NP-PKT-0006",
+        "member_id": null
+      },
+      "fields": {
+        "procedure": "Outpatient stress echocardiogram",
+        "indication": "exertional dyspnea"
+      },
+      "quotes": [
+        {
+          "field": "procedure",
+          "page": 2,
+          "text": "Procedure: Outpatient stress echocardiogram"
+        },
+        {
+          "field": "indication",
+          "page": 2,
+          "text": "Indication: exertional dyspnea"
+        }
+      ]
+    },
+    {
+      "doc_id": "P06-D3",
+      "doc_type": "registration_face_sheet",
+      "pages": [
+        3
+      ],
+      "date": "2026-09-24",
+      "signed": false,
+      "signer": null,
+      "identifiers": {
+        "name": "Sami Farouk",
+        "dob": "1980-10-02",
+        "mrn": "NP-101122",
+        "packet_id": null,
+        "member_id": "LCH-9012-3345"
+      },
+      "fields": {
+        "payer": "Lakeshore Community Health",
+        "plan_product_raw": "LCH Managed Medicaid",
+        "member_id": "LCH-9012-3345"
+      },
+      "quotes": [
+        {
+          "field": "plan_product_raw",
+          "page": 3,
+          "text": "Plan product: LCH Managed Medicaid"
+        },
+        {
+          "field": "member_id",
+          "page": 3,
+          "text": "Member ID: LCH-9012-3345"
+        }
+      ]
+    },
+    {
+      "doc_id": "P06-D4",
+      "doc_type": "insurance_card",
+      "pages": [
+        4
+      ],
+      "date": "2026-09-24",
+      "signed": false,
+      "signer": null,
+      "identifiers": {
+        "name": "Sami Farouk",
+        "dob": null,
+        "mrn": null,
+        "packet_id": null,
+        "member_id": "LCH-9012-3345"
+      },
+      "fields": {
+        "payer": "Lakeshore Community Health",
+        "plan_product_raw": "LCH Managed Medicaid",
+        "member_id": "LCH-9012-3345"
+      },
+      "quotes": [
+        {
+          "field": "plan_product_raw",
+          "page": 4,
+          "text": "Plan product: LCH Managed Medicaid"
+        },
+        {
+          "field": "member_id",
+          "page": 4,
+          "text": "Member ID: LCH-9012-3345"
+        }
+      ]
+    },
+    {
+      "doc_id": "P06-D5",
+      "doc_type": "benefits_response",
+      "pages": [
+        5
+      ],
+      "date": "2026-09-26",
+      "signed": false,
+      "signer": null,
+      "identifiers": {
+        "name": "Sami Farouk",
+        "dob": "1980-10-02",
+        "mrn": null,
+        "packet_id": null,
+        "member_id": "LCH-9012-3345"
+      },
+      "fields": {
+        "payer": "Lakeshore Community Health",
+        "plan_product_raw": "LCH Managed Medicaid",
+        "member_id": "LCH-9012-3345",
+        "response_date": "2026-09-26",
+        "coverage_active_on_eval_date": false,
+        "product_end_date": "2026-09-15"
+      },
+      "quotes": [
+        {
+          "field": "response_date",
+          "page": 5,
+          "text": "Eligibility & benefits response date: 2026-09-26"
+        },
+        {
+          "field": "plan_product_raw",
+          "page": 5,
+          "text": "Plan product: LCH Managed Medicaid"
+        },
+        {
+          "field": "member_id",
+          "page": 5,
+          "text": "Member ID: LCH-9012-3345"
+        },
+        {
+          "field": "coverage_active_on_eval_date",
+          "page": 5,
+          "text": "Coverage on 2026-10-01: NOT ACTIVE"
+        },
+        {
+          "field": "product_end_date",
+          "page": 5,
+          "text": "Coverage terminated effective 2026-09-15."
+        }
+      ]
+    },
+    {
+      "doc_id": "P06-D6",
+      "doc_type": "clinician_note",
+      "pages": [
+        6
+      ],
+      "date": "2026-09-24",
+      "signed": true,
+      "signer": "D. Haddad, MD",
+      "identifiers": {
+        "name": "Sami Farouk",
+        "dob": "1980-10-02",
+        "mrn": "NP-101122",
+        "packet_id": "NP-PKT-0006",
+        "member_id": null
+      },
+      "fields": {
+        "urgent_review_requested": false,
+        "urgent_reason": null,
+        "expedited_review_requested": true,
+        "material_increase_date": null,
+        "symptom_trajectory": "worsening",
+        "timing_text": "Progressive exertional dyspnea over 3 months.",
+        "is_assessment": true,
+        "assessment_complete": true,
+        "symptom_course_documented": true,
+        "relevant_history_documented": true,
+        "complaint_type": "exertional_dyspnea",
+        "ischemia_concern": "not_stated",
+        "prior_stress_echo": {
+          "stated": true,
+          "date": null
+        },
+        "interval_change_after_prior": null,
+        "repeat_rationale": null,
+        "tests_mentioned_without_report": [],
+        "exercise_ecg_history": {
+          "stated": false,
+          "none_since": null
+        }
+      },
+      "quotes": [
+        {
+          "field": "complaint_type",
+          "page": 6,
+          "text": "Progressive exertional dyspnea over 3 months."
+        },
+        {
+          "field": "expedited_review_requested",
+          "page": 6,
+          "text": "Requesting expedited cardiology review."
+        },
+        {
+          "field": "relevant_history_documented",
+          "page": 6,
+          "text": "History: asthma."
+        },
+        {
+          "field": "prior_stress_echo",
+          "page": 6,
+          "text": "No prior stress echocardiogram."
+        }
+      ]
+    },
+    {
+      "doc_id": "P06-D7",
+      "doc_type": "resting_ecg_report",
+      "pages": [
+        7
+      ],
+      "date": "2026-09-24",
+      "signed": true,
+      "signer": "D. Haddad, MD",
+      "identifiers": {
+        "name": "Sami Farouk",
+        "dob": "1980-10-02",
+        "mrn": "NP-101122",
+        "packet_id": null,
+        "member_id": null
+      },
+      "fields": {
+        "test_date": "2026-09-24",
+        "clinician_interpreted": true,
+        "interpretation": "nonspecific_st_t",
+        "complete": true
+      },
+      "quotes": [
+        {
+          "field": "test_date",
+          "page": 7,
+          "text": "Resting 12-lead ECG performed 2026-09-24"
+        },
+        {
+          "field": "interpretation",
+          "page": 7,
+          "text": "Clinician interpretation: nonspecific ST-T changes"
+        }
+      ]
+    }
+  ],
+  "corrections": []
+}

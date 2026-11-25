@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% from "macros.html" import pri, st %}
+{% block title %}Queue{% endblock %}
+{% block content %}
+<section class="toolbar">
+  <div>
+    <strong>Policy {{ policy.policy_version }}</strong> · evaluated as of <strong>{{ policy.eval_date }}</strong>
+    · flags: routine needs clinical clearance = <code>{{ workflow.routine_requires_clinical_clearance|lower }}</code> (A1),
+    no-PA evidence gate = <code>{{ workflow.no_pa_evidence_gate|join(', ') }}</code> (A2)
+  </div>
+  <div class="buttons">
+    <form method="post" action="/rerun"><button>Re-run all 10 through engine</button></form>
+    <form method="post" action="/reset" onsubmit="return confirm('Reset demo? Clears simulated events, audit and outbox.')"><button class="secondary">Reset demo</button></form>
+  </div>
+</section>
+
+<nav class="tabs">
+  {% for k, label, _ in tabs %}<a href="/?owner={{ k }}&site={{ quote_plus(site) }}" class="{% if owner == k %}active{% endif %}">{{ label }}</a>{% endfor %}
+</nav>
+<nav class="tabs sites"><span class="muted small">Site:</span>
+  <a href="/?owner={{ owner }}&site=all" class="{% if site == 'all' %}active{% endif %}">All sites</a>
+  {% for x in sites %}<a href="/?owner={{ owner }}&site={{ quote_plus(x) }}" class="{% if site == x %}active{% endif %}">{{ x }}</a>{% endfor %}
+</nav>
+
+<div class="table-wrap">
+<table class="queue">
+  <thead><tr>
+    <th>Priority</th><th>Patient</th><th>Site</th><th>Packet</th><th>Exact plan</th><th>Procedure</th><th>PA req</th>
+    <th>Identity</th><th>Coverage</th><th>Evidence</th><th>Holds</th><th>Next action</th><th>Owner</th><th>Age (bd)</th>
+  </tr></thead>
+  <tbody>
+  {% for r in rows %}{% set s = r.s %}
+  <tr>
+    <td>{{ pri(s.priority.status, s.priority.detail.label) }}</td>
+    <td><a href="/case/{{ s.patient_key }}"><strong>{{ s.patient_key }}</strong> {{ r.name }}</a></td>
+    <td>{{ r.site }}</td>
+    <td class="mono">{{ r.packet }}</td>
+    <td>{{ r.plan }}</td>
+    <td>{{ r.procedure }}</td>
+    <td>{{ st(s.pa_requirement) }}</td>
+    <td>{{ st(s.identity.status) }}</td>
+    <td>{{ st(s.coverage.status) }}</td>
+    <td>{{ st(s.criteria.EVIDENCE.status) }}</td>
+    <td>{% if r.sent %}<span class="chip ok">handed off</span>{% elif r.holds %}<b>{{ r.holds|length }}</b> {% for h in r.holds %}<span class="chip">{{ h }}</span>{% endfor %}{% else %}<span class="chip ok">none</span>{% endif %}</td>
+    <td>{% if r.next %}{{ r.next.action }}{% if s.actions|length > 1 %} <span class="muted">(+{{ s.actions|length - 1 }})</span>{% endif %}{% endif %}</td>
+    <td>{{ r.next.owner_role if r.next else '' }}</td>
+    <td class="num">{{ r.age }}</td>
+  </tr>
+  {% else %}<tr><td colspan="14" class="muted">No cases for this owner.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="muted small">Age = business days (Mon–Fri, no holidays; A7) from receipt to the evaluation date. Baseline split is a property of the mock set, not Northpoint's exception mix.</p>
+{% endblock %}
