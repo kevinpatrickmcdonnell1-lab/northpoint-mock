@@ -132,7 +132,7 @@
   </div>
   {% if events %}
   <h4>Simulated events on this case</h4>
-  <table class="small">{% for e in events %}<tr><td><span class="sim-badge">SIMULATED</span> {{ e.event_id }}</td><td>{{ e.type }}</td><td>{{ e.decision }}</td><td>{{ e.actor_role }}{% if e.actor_name %} ({{ e.actor_name }}){% endif %}</td><td>sim time {{ e.event_time }}</td><td>recorded {{ e.recorded_at }}</td><td>{{ e.note or '' }}</td></tr>{% endfor %}</table>
+  <table class="small">{% for e in events %}<tr><td><span class="sim-badge">SIMULATED</span> {{ e.event_id }}</td><td>{{ e.type }}</td><td>{{ e.decision }}{% if e.pa_handoff_id %} · answers {{ e.pa_handoff_id }}{% endif %}</td><td>{{ e.actor_role }}{% if e.actor_name %} ({{ e.actor_name }}){% endif %}</td><td>sim time {{ e.event_time }}</td><td>recorded {{ e.recorded_at }}</td><td>{{ e.note or '' }}</td></tr>{% endfor %}</table>
   {% endif %}
 </section>
 

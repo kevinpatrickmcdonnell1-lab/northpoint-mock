@@ -2,6 +2,11 @@
 
 Each test here was written first and confirmed failing before its fix.
 """
+import pytest
+from pydantic import ValidationError
+
+from app.handoffs import send
+from app.models import SimEvent
 from tests.helpers import docs_of, mutate, run
 
 
@@ -35,3 +40,59 @@ def test_fix1_older_expedited_also_unresolved():
                              expedited_review_requested=True)
     s = run(mutate("P03", fn))
     assert s.priority.status == "PRI-4" and "PRI-2" in s.priority.reason_text
+
+
+# --------------------------------------------------------------------------- #
+# Fix 2. PA decision accepted with no PA submission                            #
+# --------------------------------------------------------------------------- #
+
+def _p04_resolve(svc):
+    svc.simulate("P04", "IDENTITY_RESOLUTION", "confirmed", "Intake Coordinator", note="Epic",
+                 confirmed={"dob": "1951-03-14", "member_id": "SCM-302177"}, epic_reference="EPIC-1")
+    svc.simulate("P04", "BENEFITS_RESPONSE", "received", "Insurance Benefits Manager (mock)",
+                 benefits={"response_date": "2026-10-01", "payer": "Summit Crest",
+                           "plan_product_raw": "Summit Crest Medicare Advantage",
+                           "member_id": "SCM-302177", "coverage_active_on_eval_date": True})
+
+
+def test_fix2_pa_decision_rejected_without_pa_packet(svc):
+    with pytest.raises(ValueError, match="PA request packet"):
+        svc.simulate("P04", "PAYER_PA_DECISION", "approved", "Auth Specialist")
+    assert svc.store.event_count() == 0
+    _p04_resolve(svc)
+    s = svc.state("P04")
+    assert not s.scheduling_sendable and "G-PA-APPROVED" in {g.gate for g in s.gates if not g.passed}
+    assert svc.store.outbox_count("P04", "pa_request_packet") == 0
+
+
+def test_fix2_pa_decision_records_pa_handoff_id(svc):
+    _p04_resolve(svc)
+    pa = send(svc, "P04", "pa_packet")
+    assert pa["result"] == "sent"
+    ev = svc.simulate("P04", "PAYER_PA_DECISION", "approved", "Auth Specialist")
+    assert ev.pa_handoff_id == pa["handoff_id"]
+    assert svc.store.events("P04")[-1].pa_handoff_id == pa["handoff_id"]
+    assert svc.state("P04").scheduling_sendable
+
+
+def test_fix2_pa_handoff_id_only_on_pa_decisions():
+    from datetime import datetime
+    with pytest.raises(ValidationError):
+        SimEvent(event_id="EV-X", patient_key="P01", type="CLINICAL_REVIEW_DECISION",
+                 decision="reviewed_hold", actor_role="Clinical Triage RN",
+                 event_time=datetime(2026, 10, 1, 9), recorded_at=datetime(2026, 11, 27, 9),
+                 pa_handoff_id="HO-P01-PA-1")
+
+
+def test_fix2_ui_shows_rejection_not_500(svc):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    app.state.svc = svc
+    try:
+        with TestClient(app) as c:
+            r = c.post("/case/P04/simulate", data={"type": "PAYER_PA_DECISION", "decision": "approved",
+                                                    "actor_role": "Auth Specialist"})
+        assert r.status_code == 200
+        assert "Not recorded" in r.text and "PA request packet" in r.text
+    finally:
+        del app.state.svc

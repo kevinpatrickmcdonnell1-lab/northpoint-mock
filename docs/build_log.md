@@ -116,6 +116,12 @@ A review of the seams between document facts, policy config and simulated events
 - **Fix:** `rules/priority.py`: if any older candidate's tier is higher than the newest candidate's, return PRI-4 and name both documents and their tiers. Logged as A3a in `assumptions.md`.
 - **Verified:** `test_fix1_older_higher_tier_is_pri4_not_downgrade` and `test_fix1_older_expedited_also_unresolved` failed with `'PRI-3' == 'PRI-4'`, then passed. Golden tables unchanged (no current case has an older higher-tier candidate).
 
+### Fix 2. PA decision accepted with no PA submission (code bug)
+- **Problem:** on P04, a simulated `PAYER_PA_DECISION approved` could be recorded before identity was resolved and before any PA packet existed. After identity resolution and a matching E&B response, the case became sendable with zero `pa_request_packet` handoffs.
+- **Found by:** review; reproduced through the service layer.
+- **Fix:** `Service.simulate` rejects `PAYER_PA_DECISION` unless the case has a `pa_request_packet` handoff, and records that handoff's ID on the event (new optional `SimEvent.pa_handoff_id`, valid only on PA decisions). The UI shows the rejection as a "Not recorded: …" flash, not a 500. The case page's event table shows which packet a decision answers. The setups in `test_invariants.py::test_reason_codes_survive_transitions` and `test_transitions.py::test_wrong_role_cannot_record_event` now send a PA packet first; their assertions are unchanged.
+- **Verified:** `test_fix2_pa_decision_rejected_without_pa_packet`, `test_fix2_pa_decision_records_pa_handoff_id` and `test_fix2_ui_shows_rejection_not_500` failed first (no `ValueError`; no `pa_handoff_id`; no flash), then passed. 234 tests pass.
+
 ## Verification summary
 - `make test`: 228 tests, including the hand-derived real golden table (10 rows). Earlier counts: 194, then 217. Golden table, window boundaries, single-fact flips, invariants (gate leaks, no events from the engine, no derived keys, immutable sources via SQLite triggers, mutation tests on priority and unsigned docs, reason/evidence completeness, determinism, no patient-specific code), the four scripted transitions, an HTTP walkthrough of P01/P03/P04/P05/P08, and quote-on-page checks for all ten packets.
 - `make reset mock ingest check seed` from clean: ~5 s.

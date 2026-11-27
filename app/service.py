@@ -112,12 +112,21 @@ class Service:
         if actor_role not in ALLOWED_ROLES.get(type_, []):
             raise ValueError(f"{actor_role} cannot record {type_} (allowed: {ALLOWED_ROLES.get(type_)})")
         self.store.case(key)  # must exist
+        pa_handoff_id = None
+        if type_ == "PAYER_PA_DECISION":
+            # Fix 2: a payer can only decide on a PA request that was actually submitted.
+            packets = [o for o in self.store.outbox(key) if o["work_item"]["type"] == "pa_request_packet"]
+            if not packets:
+                raise ValueError(f"No PA request packet has been sent for {key}, so there is no "
+                                 "payer decision to record. Prepare the PA packet first.")
+            pa_handoff_id = packets[-1]["handoff_id"]
         ev = SimEvent(
             event_id=f"EV-{self.store.event_count() + 1:04d}", patient_key=key, type=type_,
             decision=decision, actor_role=actor_role, actor_name=actor_name or None,
             event_time=self.next_event_time(), recorded_at=datetime.now().replace(microsecond=0),
             note=note or None, confirmed=confirmed or None, epic_reference=epic_reference or None,
             benefits=BenefitsResponseFields.model_validate(benefits) if benefits else None,
+            pa_handoff_id=pa_handoff_id,
         )
         self.store.add_event(ev)
         self.store.audit(key, wall_clock(), actor_role, "sim_event",
