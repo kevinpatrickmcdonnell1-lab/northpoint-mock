@@ -16,7 +16,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
 from app import fact_review as fr
-from app import handoffs, metrics, personas, presenter
+from app import handoffs, metrics, panels, personas, presenter
 from app.engine import evaluate
 from app.metrics import business_days
 from app.pdfs import PAGES, TITLES
@@ -283,6 +283,23 @@ async def simulate(key: str, request: Request):
         return _simulate(key, form)
 
 
+def benefits_from_form(form: dict, eval_date: date) -> tuple[dict, Optional[str]]:
+    """The E&B payload from a form, plus an error when the response date is after the
+    evaluation date (the engine would ignore it, A8)."""
+    try:
+        rd = date.fromisoformat((form.get("response_date") or "").strip())
+    except ValueError:
+        rd = None
+    if rd is not None and rd > eval_date:
+        return {}, (f"response date {rd} is after the evaluation date {eval_date}, so the engine "
+                    f"would ignore it (A8). Use a date on or before {eval_date}.")
+    return {"response_date": form.get("response_date"), "payer": form.get("payer") or None,
+            "plan_product_raw": form.get("plan_product_raw") or None,
+            "member_id": form.get("member_id") or None,
+            "coverage_active_on_eval_date": {"true": True, "false": False}.get(form.get("active", "")),
+            "product_end_date": form.get("product_end_date") or None}, None
+
+
 def _simulate(key: str, form: dict):
     t = form.get("type", "")
     recalls_before = {o["handoff_id"] for o in svc().store.outbox(key)
@@ -296,20 +313,9 @@ def _simulate(key: str, form: dict):
             ev = svc().simulate(key, t, "confirmed", confirmed=confirmed,
                                 epic_reference=form.get("epic_reference"), **kw)
         elif t == "BENEFITS_RESPONSE":
-            eval_date = svc().policy.eval_date
-            try:
-                rd = date.fromisoformat((form.get("response_date") or "").strip())
-            except ValueError:
-                rd = None
-            if rd is not None and rd > eval_date:
-                return go(f"/case/{key}?form=benefits", f"Not recorded: response date {rd} is after the "
-                          f"evaluation date {eval_date}, so the engine would ignore it (A8). "
-                          f"Use a date on or before {eval_date}.", at="sim-benefits")
-            b = {"response_date": form.get("response_date"), "payer": form.get("payer") or None,
-                 "plan_product_raw": form.get("plan_product_raw") or None,
-                 "member_id": form.get("member_id") or None,
-                 "coverage_active_on_eval_date": {"true": True, "false": False}.get(form.get("active", "")),
-                 "product_end_date": form.get("product_end_date") or None}
+            b, late = benefits_from_form(form, svc().policy.eval_date)
+            if late:
+                return go(f"/case/{key}?form=benefits", f"Not recorded: {late}", at="sim-benefits")
             ev = svc().simulate(key, t, "received", benefits=b, **kw)
         else:
             ev = svc().simulate(key, t, form.get("decision", ""), **kw)
@@ -399,15 +405,19 @@ def work_items(service: Service, p: personas.Persona) -> list[dict]:
         mine = [a for a in s.actions if personas.owns(p, a)]
         others = sorted({a.owner_role for a in s.actions if not personas.owns(p, a)})
         for a in mine:
-            items.append({**base, "code": a.reason_code, "title": a.action, "detail": a.detail,
+            code = a.reason_code
+            items.append({**base, "code": code, "title": a.action, "detail": a.detail,
                           "owner": a.owner_role, "others": others,
-                          "primary": personas.PRIMARY_HANDOFF.get(a.reason_code),
-                          "href": f"/case/{s.patient_key}#{_anchor(a.reason_code)}"})
+                          "primary": personas.PRIMARY_HANDOFF.get(code),
+                          "waiting": panels.waiting_on(service, s.patient_key, code),
+                          "href": (f"/work/{s.patient_key}/{code}" if panels.kind(code)
+                                   else f"/case/{s.patient_key}#{_anchor(code)}")})
         if p.fact_flags:
             for f in service.open_flags(s.patient_key):
                 if fr.is_clinical(f.field) == (p.fact_flags == "clinical"):
                     items.append({**base, "code": f"FACT_{f.field}", "title": f"Check {f.field} on {f.doc_id}",
                                   "detail": f.message, "owner": p.role, "others": others, "primary": None,
+                                  "waiting": None,
                                   "href": page_url(ef.source_file, f.page, s.patient_key) + f"#fact-{f.doc_id}-{f.field}"})
     return sorted(items, key=lambda i: (i["rank"], -i["age"], i["key"], i["code"]))
 
@@ -421,7 +431,109 @@ def my_work(request: Request, msg: Optional[str] = None):
     run = service.engine_has_run()
     items = work_items(service, p) if run and not p.read_only else []
     return templates.TemplateResponse(request, "work.html", {
-        "p": p, "items": items, "msg": msg, "engine_run": run})
+        "p": p, "items": [i for i in items if not i["waiting"]],
+        "waiting": [i for i in items if i["waiting"]], "msg": msg, "engine_run": run})
+
+
+def _next_url(service: Service, p: personas.Persona, done: tuple[str, str]) -> str:
+    """The persona's next active item, preferring another case over the one just handled."""
+    items = [i for i in work_items(service, p) if not i["waiting"] and (i["key"], i["code"]) != done]
+    other = [i for i in items if i["key"] != done[0]]
+    nxt = (other or items or [None])[0]
+    return nxt["href"] if nxt else "/work"
+
+
+def _find_item(service: Service, p: personas.Persona, key: str, code: str) -> Optional[dict]:
+    return next((i for i in work_items(service, p) if i["key"] == key and i["code"] == code), None)
+
+
+@app.get("/work/{key}/{code}")
+def work_panel(request: Request, key: str, code: str, msg: Optional[str] = None):
+    p = persona_of(request)
+    if p is None:
+        return go(f"/case/{key}")
+    service = svc()
+    item = _find_item(service, p, key, code) if service.engine_has_run() else None
+    if item is None:
+        return go("/work", f"{key} {code} is not on your list ({p.role}): it may be done or owned by another role.")
+    if not panels.kind(code):
+        return go(item["href"])
+    s, ef = item["s"], service.case(key)
+    active = [i for i in work_items(service, p) if not i["waiting"]]
+    pos = next((n for n, i in enumerate(active, 1) if (i["key"], i["code"]) == (key, code)), None)
+    return templates.TemplateResponse(request, "panel.html", {
+        "p": p, "i": item, "s": s, "ef": ef, "x": panels.build(code, s, ef, service),
+        "pos": pos, "total": len(active), "msg": msg, "policy": service.policy,
+        "skip": _next_url(service, p, (key, code)),
+        "products": [pl.product for pl in service.policy.plans.values()]})
+
+
+OPS = {"clinical": "decide", "identity": "identity", "coverage": "benefits", "request": "request"}
+
+
+@app.post("/work/{key}/{code}")
+async def work_act(request: Request, key: str, code: str):
+    p = persona_of(request)
+    if p is None:
+        return go(f"/case/{key}", "Choose who you are (top right) to work from a panel.")
+    form = dict((await request.form()).items())
+    here = f"/work/{key}/{code}"
+    service = svc()
+    with service.lock:
+        item = _find_item(service, p, key, code) if service.engine_has_run() else None
+        if item is None:
+            return go("/work", f"Not recorded: {key} {code} is not on your list ({p.role}).")
+        k, op = panels.kind(code), form.get("op", "")
+        if k is None or OPS[k] != op:
+            return go(here, f"Not recorded: “{op or 'nothing'}” doesn't settle {code}.")
+        note = (form.get("note") or "").strip()
+        try:
+            if op == "decide":
+                decision = form.get("decision", "")
+                if decision not in dict(panels.DECISIONS):
+                    return go(here, "Not recorded: choose a decision.")
+                if not note:
+                    return go(here, "Not recorded: a clinical decision needs a note saying what you reviewed.")
+                ev = service.simulate(key, "CLINICAL_REVIEW_DECISION", decision, actor_role=p.role,
+                                      actor_name=p.name, note=note)
+                done = f"{ev.event_id}: {key} {decision.replace('_', ' ')} recorded by {personas.label(p)}."
+            elif op == "identity":
+                fields = [f["field"] for f in panels.identity(item["s"], service.case(key))["fields"]]
+                confirmed, missing = {}, []
+                for f in fields:
+                    v = form.get(f"confirmed_{f}", "")
+                    v = (form.get(f"confirmed_{f}_other", "") if v == "__other" else v).strip()
+                    (confirmed.__setitem__(f, v) if v else missing.append(f))
+                if missing:
+                    return go(here, f"Not recorded: confirm a value for {', '.join(missing)} "
+                                    "(every disagreeing identifier must be settled).")
+                ev = service.simulate(key, "IDENTITY_RESOLUTION", "confirmed", actor_role=p.role,
+                                      actor_name=p.name, note=note or None, confirmed=confirmed,
+                                      epic_reference=(form.get("epic_reference") or "").strip() or None)
+                done = f"{ev.event_id}: identity confirmed for {key} by {personas.label(p)}."
+            elif op == "benefits":
+                b, late = benefits_from_form(form, service.policy.eval_date)
+                if late:
+                    return go(here, f"Not recorded: {late}")
+                ev = service.simulate(key, "BENEFITS_RESPONSE", "received",
+                                      actor_role=personas.EVENT_ACTOR_ROLE["BENEFITS_RESPONSE"],
+                                      actor_name=p.name, note=note or None, benefits=b)
+                done = f"{ev.event_id}: E&B response logged for {key} by {personas.label(p)}."
+            else:  # request
+                if not personas.may_send(p, "missing_info"):
+                    return go(here, f"Not recorded: {p.role} doesn't send document requests.")
+                r = handoffs.send(service, key, "missing_info", actor=personas.label(p))
+                if r["result"] not in ("sent", "already_recorded"):
+                    return go(here, f"Not recorded: {r.get('reason') or r['result']}")
+                done = (f"{r['handoff_id']}: request for {key} sent by {personas.label(p)}."
+                        if r["result"] == "sent" else f"Already sent as {r['handoff_id']}.")
+        except (ValidationError, ValueError) as e:
+            msg = e.errors()[0]["msg"] if isinstance(e, ValidationError) else str(e)
+            return go(here, f"Not recorded: {msg}")
+        except sqlite3.IntegrityError:
+            return go(here, CONCURRENT_WRITE)
+        nxt = _next_url(service, p, (key, code))
+    return go(nxt, done + ("" if nxt != "/work" else " Your list is clear."))
 
 
 # ---------------------------------------------------------------- pages, outbox, metrics

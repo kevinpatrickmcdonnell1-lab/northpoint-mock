@@ -15,7 +15,7 @@
 {% elif not engine_run %}
   <div class="card"><p style="margin:0">The engine has not run yet, so there is no work to route. Run all packets from the <a href="/">queue</a>.</p></div>
 {% else %}
-<p class="small muted">{{ items|length }} open item{{ 's' if items|length != 1 }} · urgent first, then unable-to-determine, expedited, routine; oldest first within each. Every action you take here is recorded as {{ persona_label(p) }}.</p>
+<p class="small muted">{{ items|length }} open item{{ 's' if items|length != 1 }}{% if items %} · <a href="{{ items[0].href }}">Start with the first →</a>{% endif %} · urgent first, then unable-to-determine, expedited, routine; oldest first within each. Every action you take here is recorded as {{ persona_label(p) }}.</p>
 <div class="table-card table-wrap">
 <table class="queue work">
   <thead><tr><th>Priority</th><th>Case</th><th>What to do</th><th>Why</th><th class="num">Age (bd)</th><th>Also held by</th><th></th></tr></thead>
@@ -39,5 +39,13 @@
   </tbody>
 </table>
 </div>
+<section id="waiting">
+  <h3 class="section-title">Waiting on others <span class="muted small">{{ waiting|length }}</span></h3>
+  {% if waiting %}
+  <div class="table-card table-wrap"><table class="queue work small">
+    {% for i in waiting %}<tr data-work="{{ i.key }}:{{ i.code }}"><td>{{ pri(i.s.priority.status, i.s.priority.detail.label) }}</td><td><a href="{{ i.href }}"><strong>{{ i.key }}</strong></a> {{ i.name }}</td><td>{{ i.title }}</td><td>sent as <a href="/outbox/{{ i.waiting }}">{{ i.waiting }}</a></td><td class="num">{{ i.age }} bd</td></tr>{% endfor %}
+  </table></div>
+  {% else %}<p class="small muted">Nothing sent and awaiting a reply.</p>{% endif %}
+</section>
 {% endif %}
 {% endblock %}

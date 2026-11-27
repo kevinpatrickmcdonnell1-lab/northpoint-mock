@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% from "macros.html" import pri %}
+{% block title %}{{ i.key }} · {{ i.code }}{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="/work">← My work</a> · {% if pos %}Item {{ pos }} of {{ total }}{% else %}Waiting on {{ i.waiting }}{% endif %}{% if skip != '/work' %} · <a href="{{ skip }}">Skip to next →</a>{% endif %}</p>
+<section class="panel-head">
+  <div>
+    <p class="eyebrow">{{ p.role }} · {{ i.code }}</p>
+    <h1 class="display" style="font-size:30px;margin:4px 0 6px">{{ i.key }} <span class="muted" style="font-size:20px">{{ i.name }}</span></h1>
+    <p style="margin:0">{{ pri(s.priority.status, s.priority.detail.label) }} <b>{{ i.title }}</b></p>
+    {% if i.detail %}<p class="small" style="margin:6px 0 0">{{ i.detail }}</p>{% endif %}
+    {% for o in i.others %}<span class="chip neutral" title="Read-only: owned by another role">Also held by {{ o }}</span>{% endfor %}
+  </div>
+  <a class="small" href="/case/{{ i.key }}">Open full case →</a>
+</section>
+
+<div class="panel-grid">
+<section class="panel-evidence" id="evidence">
+{% if x.kind == 'clinical' %}
+  <h3>What the signed sources say</h3>
+  <p class="small muted">The sources the priority rule used, newest last. Payer, coverage and PA are not shown here: they never affect clinical priority.</p>
+  <div class="src-grid">
+  {% for src in x.sources %}
+    <article class="src">
+      <a href="{{ page_url(src.file, src.page, i.key) }}"><img src="/pages/{{ src.file }}/{{ src.page }}.png" alt="{{ TITLES[src.d.doc_type] }} page {{ src.page }}" loading="lazy"></a>
+      <div class="body">
+        <b>{{ TITLES[src.d.doc_type] }}</b> <span class="muted small">{{ src.d.date }} · {{ src.d.signer or 'unsigned' }} · p.{{ src.d.pages|join(', ') }}</span>
+        <ul class="facts">{% for f, v in src.facts.items() %}<li><span class="f">{{ f }}</span>{{ v }}</li>{% endfor %}</ul>
+        {% for q in src.quotes %}<div class="q"><span class="f">{{ q.field }}</span><a href="{{ page_url(src.file, q.page, i.key, q.text) }}">“{{ q.text }}”</a></div>{% endfor %}
+      </div>
+    </article>
+  {% endfor %}
+  </div>
+  <p class="small">{{ s.priority.reason_text }}</p>
+  {% if x.notified %}<p class="small">Triage notified: {% for o in x.notified %}<a href="/outbox/{{ o.handoff_id }}">{{ o.handoff_id }}</a> {% endfor %}</p>{% endif %}
+
+{% elif x.kind == 'identity' %}
+  <h3>Identifiers that disagree</h3>
+  <p class="small muted">Each value as its page states it. Nothing is preselected: check Epic and choose.</p>
+  {% for f in x.fields %}
+  <div class="id-field">
+    <h4>{{ {'name':'Name','dob':'Date of birth','member_id':'Member ID'}[f.field] }} <span class="st st-{{ f.status }}">{{ f.status }}</span></h4>
+    <div class="src-grid">
+    {% for val, refs in f.groups.items() %}
+      <article class="src">
+        <a href="{{ page_url(refs[0].file, refs[0].page, i.key, None, f.field) }}"><img src="/pages/{{ refs[0].file }}/{{ refs[0].page }}.png" alt="page {{ refs[0].page }}" loading="lazy"></a>
+        <div class="body"><b class="mono">{{ val }}</b><br><span class="small muted">{% for r in refs %}{{ TITLES[r.doc_type] }} <a class="ref" href="{{ page_url(r.file, r.page, i.key, None, f.field) }}">p.{{ r.page }}</a>{% if not loop.last %} · {% endif %}{% endfor %}</span></div>
+      </article>
+    {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+
+{% elif x.kind == 'coverage' %}
+  <h3>Coverage as the packet states it</h3>
+  <p class="small">{{ s.coverage.reason_text }}</p>
+  <div class="table-card"><table class="small">
+    <thead><tr><th>Document</th><th>Payer</th><th>Plan product</th><th>Member ID</th><th>Response date</th><th>Active on {{ policy.eval_date }}</th><th>Page</th></tr></thead>
+    {% for r in x.rows %}<tr class="cov-row"><td>{{ TITLES[r.d.doc_type] }}</td><td>{{ r.payer or '—' }}</td><td>{{ r.product or '—' }}</td><td class="mono">{{ r.member_id or '—' }}</td><td>{{ r.response_date or '—' }}</td><td>{{ '—' if r.active is none else ('yes' if r.active else 'no') }}</td><td><a class="ref" href="{{ page_url(r.file, r.page, i.key) }}">p.{{ r.page }}</a></td></tr>{% endfor %}
+  </table></div>
+
+{% elif x.kind == 'request' %}
+  <h3>Request preview</h3>
+  <div class="card">
+    <p class="small" style="margin-top:0"><b>To:</b> {{ x.to|join('; ') }}<br><b>Via:</b> Communications Coordinator (fax) · <b>Re:</b> {{ i.name }}, stress echocardiogram order</p>
+    <ol class="small">{% for a in x.requests %}<li>{{ a.detail or a.action }} <span class="mono muted">{{ a.reason_code }}</span></li>{% endfor %}</ol>
+    <p class="small muted" style="margin-bottom:0">One request covers every open document gap on this case.</p>
+  </div>
+  {% if x.sent %}<p class="small">Sent: {% for o in x.sent %}<a href="/outbox/{{ o.handoff_id }}">{{ o.handoff_id }}</a> ({{ o.work_item.requests|map(attribute='reason_code')|join(', ') }}) {% endfor %}</p>{% endif %}
+{% endif %}
+</section>
+
+<section class="panel-decide card" id="decide">
+{% if x.kind == 'clinical' %}
+  <h3>Your decision</h3>
+  <form method="post" action="/work/{{ i.key }}/{{ i.code }}">
+    <input type="hidden" name="op" value="decide">
+    {% for v, label in x.decisions %}<label class="radio"><input type="radio" name="decision" value="{{ v }}"> {{ label }}</label>{% endfor %}
+    <label>What you reviewed* <textarea name="note" rows="3" placeholder="e.g. called patient, reviewed note p.7"></textarea></label>
+    <button>Record decision &amp; next</button>
+  </form>
+{% elif x.kind == 'identity' %}
+  <h3>Confirm in Epic</h3>
+  <form method="post" action="/work/{{ i.key }}/{{ i.code }}">
+    <input type="hidden" name="op" value="identity">
+    {% for f in x.fields %}
+    <fieldset><legend>{{ f.field }}</legend>
+      {% for val in f.groups %}<label class="radio"><input type="radio" name="confirmed_{{ f.field }}" value="{{ val }}"> <span class="mono">{{ val }}</span></label>{% endfor %}
+      <label class="radio"><input type="radio" name="confirmed_{{ f.field }}" value="__other"> Other: <input name="confirmed_{{ f.field }}_other" class="mono"></label>
+    </fieldset>
+    {% endfor %}
+    <label>Epic reference* <input name="epic_reference" placeholder="EPIC-REG-…"></label>
+    <label>Note* <input name="note" placeholder="what you checked"></label>
+    <button>Record resolution &amp; next</button>
+  </form>
+  <p class="small muted">Pages keep their original values; the resolution is a separate, labelled event.</p>
+{% elif x.kind == 'coverage' %}
+  <h3>Log the E&amp;B response</h3>
+  <form method="post" action="/work/{{ i.key }}/{{ i.code }}">
+    <input type="hidden" name="op" value="benefits">
+    <label>Response date* <input name="response_date" value="{{ policy.eval_date }}"></label>
+    <label>Payer <input name="payer"></label>
+    <label>Exact plan product <input name="plan_product_raw" list="products"></label>
+    <datalist id="products">{% for pr in products %}<option value="{{ pr }}">{% endfor %}</datalist>
+    <label>Member ID <input name="member_id"></label>
+    <label>Active on {{ policy.eval_date }} <select name="active"><option value="">not stated</option><option value="true">true</option><option value="false">false</option></select></label>
+    <label>Product end date <input name="product_end_date" placeholder="optional"></label>
+    <label>Note <input name="note"></label>
+    <button>Log response &amp; next</button>
+  </form>
+  <p class="small muted">Recorded as SIMULATED, attributed to the mock Insurance Benefits Manager with your name.</p>
+{% elif x.kind == 'request' %}
+  <h3>Send</h3>
+  {% if i.waiting %}<p class="st st-pending small">Sent as {{ i.waiting }}. Waiting for the document; this item clears when it arrives.</p>{% endif %}
+  <form method="post" action="/work/{{ i.key }}/{{ i.code }}">
+    <input type="hidden" name="op" value="request">
+    <button>{{ 'Send again' if i.waiting else 'Send request' }} &amp; next</button>
+  </form>
+{% endif %}
+  <p class="small muted">Recorded as {{ persona_label(p) }}, audited.</p>
+</section>
+</div>
+{% endblock %}
