@@ -305,6 +305,7 @@ class EvidenceRef(Strict):
     quote: Optional[str] = None
     doc_id: Optional[str] = None
     event_id: Optional[str] = None   # set when the basis is a SIMULATED event, not a PDF
+    field: Optional[str] = None      # the extraction field this ref cites (quote may be absent)
 
 
 class RuleResult(Strict):

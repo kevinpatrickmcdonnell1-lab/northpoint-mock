@@ -398,3 +398,62 @@ def test_fix7_simulate_form_rejects_late_response(svc):
         assert 'class="flash flash-bad small form-error"' in r.text     # shown inline, at the form
     finally:
         del app.state.svc
+
+
+# --------------------------------------------------------------------------- #
+# Fix 8. Evidence links fall back to an unrelated quote                        #
+# --------------------------------------------------------------------------- #
+
+import subprocess  # noqa: E402
+import sys  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+from tests.helpers import facts  # noqa: E402
+
+
+def _doc_without_quote_for(field):
+    for k in ("P01", "P02", "P03", "P05"):
+        for d in facts(k).documents:
+            if d.quotes and field not in {q.field for q in d.quotes} and hasattr(d.fields, field):
+                return facts(k), d
+    raise AssertionError(f"no doc lacks a {field} quote")
+
+
+def test_fix8_ref_without_field_quote_has_no_quote():
+    from app.rules.common import ref
+    ef, d = _doc_without_quote_for("symptom_trajectory")
+    r = ref(ef, d, "symptom_trajectory")
+    assert r.quote is None and r.page == d.pages[0] and r.field == "symptom_trajectory"
+
+
+def test_fix8_ref_with_field_quote_unchanged():
+    from app.rules.common import ref
+    ef = facts("P01")
+    d = next(x for x in ef.documents if x.doc_type == "stress_echo_order")
+    q = next(q for q in d.quotes if q.field == "indication")
+    r = ref(ef, d, "indication")
+    assert r.quote == q.text and r.page == q.page
+
+
+def test_fix8_page_viewer_says_no_quote(svc):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    app.state.svc = svc
+    try:
+        with TestClient(app) as c:
+            r = c.get("/page/P01_packet.pdf/6?field=complaint_type&case=P01")
+        assert r.status_code == 200
+        assert "No quote recorded for complaint_type; showing the page" in r.text
+        assert "<mark>" not in r.text
+    finally:
+        del app.state.svc
+
+
+def test_fix8_check_extractions_warns_but_passes():
+    root = Path(__file__).resolve().parent.parent
+    p = subprocess.run([sys.executable, "scripts/check_extractions.py"], cwd=root,
+                       capture_output=True, text=True)
+    assert p.returncode == 0, p.stdout + p.stderr
+    warns = [ln for ln in p.stdout.splitlines() if ln.startswith("WARNING") and "no quote of its own" in ln]
+    assert warns, p.stdout
+    assert "ERROR" not in p.stdout

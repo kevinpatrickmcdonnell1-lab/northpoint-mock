@@ -8,5 +8,5 @@
 
 {% macro ref_link(r) -%}
 {% if r.event_id %}<span class="sim-badge">SIMULATED – not from PDF · {{ r.event_id }}</span>
-{% else %}<a class="ref" href="/page/{{ r.file }}/{{ r.page }}{% if r.quote %}?q={{ quote_plus(r.quote) }}{% endif %}">{{ r.file }} p.{{ r.page }}</a>{% endif %}
+{% else %}<a class="ref" href="/page/{{ r.file }}/{{ r.page }}{% if r.quote %}?q={{ quote_plus(r.quote) }}{% elif r.field %}?field={{ quote_plus(r.field) }}{% endif %}"{% if not r.quote %} title="No quote recorded{% if r.field %} for {{ r.field }}{% endif %}"{% endif %}>{{ r.file }} p.{{ r.page }}</a>{% endif %}
 {%- endmacro %}

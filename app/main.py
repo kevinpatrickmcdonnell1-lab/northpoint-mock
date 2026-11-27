@@ -200,7 +200,8 @@ def handoff(key: str, kind: str):
 # ---------------------------------------------------------------- pages, outbox, metrics
 
 @app.get("/page/{file}/{page}")
-def page_viewer(request: Request, file: str, page: int, q: Optional[str] = None):
+def page_viewer(request: Request, file: str, page: int, q: Optional[str] = None,
+                field: Optional[str] = None):
     txt = PAGES / file / f"{page}.txt"
     if "/" in file or ".." in file or not txt.exists():
         raise HTTPException(404, "Page not ingested. Run `make ingest`.")
@@ -214,7 +215,7 @@ def page_viewer(request: Request, file: str, page: int, q: Optional[str] = None)
             parts = (norm[:i], norm[i:j], norm[j:])
     key = file.split("_")[0]
     return templates.TemplateResponse(request, "page.html", {
-        "file": file, "page": page, "q": q, "text": text, "parts": parts, "key": key})
+        "file": file, "page": page, "q": q, "text": text, "parts": parts, "key": key, "field": field})
 
 
 @app.get("/pages/{file}/{page}.png")
