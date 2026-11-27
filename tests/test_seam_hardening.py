@@ -96,3 +96,43 @@ def test_fix2_ui_shows_rejection_not_500(svc):
         assert "Not recorded" in r.text and "PA request packet" in r.text
     finally:
         del app.state.svc
+
+
+# --------------------------------------------------------------------------- #
+# Fix 3. Same order can be sent to scheduling twice                            #
+# --------------------------------------------------------------------------- #
+
+SCHED = "stress_echo_ready_to_schedule"
+
+
+def test_fix3_no_second_scheduling_handoff_after_unrelated_event(svc):
+    first = send(svc, "P02", "schedule")
+    assert first["result"] == "sent" and first["handoff_id"] == "HO-P02-SCHED-1"
+    svc.simulate("P02", "CLINICAL_REVIEW_DECISION", "cleared_for_scheduling", "Clinical Triage RN")
+    assert svc.state("P02").scheduling_sendable
+    again = send(svc, "P02", "schedule")
+    assert again["result"] == "already_sent" and again["handoff_id"] == "HO-P02-SCHED-1"
+    assert svc.store.outbox_count("P02", SCHED) == 1
+    assert not (svc.outbox_dir / "HO-P02-SCHED-2.json").exists()
+
+
+def test_fix3_pa_packet_behaviour_unchanged(svc):
+    # A PA packet re-sent after a new simulated event is still a new packet (B17).
+    assert send(svc, "P01", "pa_packet")["handoff_id"] == "HO-P01-PA-1"
+    assert send(svc, "P01", "pa_packet")["result"] == "already_recorded"
+    svc.simulate("P01", "CLINICAL_REVIEW_DECISION", "reviewed_hold", "Clinical Triage RN")
+    assert send(svc, "P01", "pa_packet")["handoff_id"] == "HO-P01-PA-2"
+
+
+def test_fix3_ui_message(svc):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    app.state.svc = svc
+    try:
+        with TestClient(app) as c:
+            assert "Sent stress_echo" in c.post("/case/P02/handoff/schedule").text
+            svc.simulate("P02", "CLINICAL_REVIEW_DECISION", "cleared_for_scheduling", "Clinical Triage RN")
+            r = c.post("/case/P02/handoff/schedule")
+        assert r.status_code == 200 and "Already sent to scheduling as HO-P02-SCHED-1" in r.text
+    finally:
+        del app.state.svc

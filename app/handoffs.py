@@ -16,6 +16,8 @@ KINDS = {
     "triage": ("urgent_triage_notification", "Epic In Basket (MOCK STUB)", "TRIAGE"),
     "missing_info": ("missing_info_request", "Fax/Comms (MOCK STUB)", "INFO"),
 }
+SCHED_TYPE = KINDS["schedule"][0]
+RECALL_TYPE = "scheduling_recall"
 PA_PREP_GATES = ("G-ID", "G-COV", "G-PAREQ", "G-EVID")
 MISSING_CODES = {"EVID_MISSING_ORDER", "EVID_MISSING_REPORT", "EVID_HMO1", "COV_INACTIVE"}
 CLIN_CODES = {"CLIN_URGENT", "CLIN_EXPEDITED", "CLIN_UNDETERMINED", "CLIN_ROUTINE_REVIEW"}
@@ -29,6 +31,18 @@ def _gates(s: CaseState, names=None) -> list[dict]:
 def _evidence(s: CaseState) -> list[dict]:
     return [{"rule": k, "file": r.file, "page": r.page, "quote": r.quote}
             for k, v in s.criteria.items() if k != "EVIDENCE" for r in v.evidence_refs]
+
+
+def active_scheduling_handoff(svc: Service, key: str) -> dict | None:
+    """The case's scheduling handoff that has not been recalled since it was sent (at most one)."""
+    active = None
+    for o in svc.store.outbox(key):            # insertion order
+        t = o["work_item"]["type"]
+        if t == SCHED_TYPE:
+            active = o
+        elif t == RECALL_TYPE:
+            active = None
+    return active
 
 
 def send(svc: Service, key: str, kind: str, actor: str = "UI user") -> dict[str, Any]:
@@ -90,6 +104,14 @@ def send(svc: Service, key: str, kind: str, actor: str = "UI user") -> dict[str,
     existing = svc.store.outbox_by_key(idem)
     if existing:
         return {"result": "already_recorded", "handoff_id": existing["handoff_id"], "payload": existing}
+    if kind == "schedule":
+        # Fix 3: one active scheduling handoff per case. A re-send needs a scheduling_recall
+        # recorded since the last scheduling handoff; otherwise nothing is recorded.
+        active = active_scheduling_handoff(svc, key)
+        if active:
+            return {"result": "already_sent", "handoff_id": active["handoff_id"], "payload": active,
+                    "reason": "This order already has an active scheduling handoff. A re-send is "
+                              "allowed only after that handoff has been recalled."}
 
     n = svc.store.outbox_count(key, work_type) + 1
     payload = {

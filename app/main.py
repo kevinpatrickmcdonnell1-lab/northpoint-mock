@@ -170,6 +170,8 @@ def handoff(key: str, kind: str):
         "sent": f"Sent {label}: {r.get('handoff_id')} recorded in outbox (MOCK STUB); "
                 f"delivery {r.get('delivery')}.",
         "already_recorded": f"Already recorded as {r.get('handoff_id')} (idempotency key unchanged).",
+        "already_sent": f"Already sent to scheduling as {r.get('handoff_id')}; nothing recorded. "
+                        "A re-send is allowed only after a scheduling recall.",
         "blocked": f"BLOCKED {label}: failing gates {', '.join(r.get('failing_gates', []))}. "
                    "Attempt recorded in the audit trail.",
         "not_applicable": f"Not applicable: {r.get('reason')}",
