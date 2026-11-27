@@ -199,3 +199,104 @@ def test_fix4_case_page_and_outbox_show_recall(svc):
         assert "HO-P02-RECALL-1" in out and "recalls HO-P02-SCHED-1" in out
     finally:
         del app.state.svc
+
+
+# --------------------------------------------------------------------------- #
+# Fix 5. Config mistakes fail open                                             #
+# --------------------------------------------------------------------------- #
+
+import yaml  # noqa: E402
+
+from app import policy as policy_mod  # noqa: E402
+
+
+def _yaml_variant(tmp_path, src, name, fn):
+    data = yaml.safe_load(src.read_text())
+    fn(data)
+    p = tmp_path / name
+    p.write_text(yaml.safe_dump(data, sort_keys=False))
+    return p
+
+
+def _policy_variant(tmp_path, fn):
+    return _yaml_variant(tmp_path, policy_mod.POLICY_PATH, "policy.yaml", fn)
+
+
+def _workflow_variant(tmp_path, fn):
+    return _yaml_variant(tmp_path, policy_mod.WORKFLOW_PATH, "workflow.yaml", fn)
+
+
+def test_fix5_unknown_plan_extra_rule_rejected(tmp_path):
+    p = _policy_variant(tmp_path, lambda d: d["plans"]["PLAN-HSHMO"].update(extra=["HMO1"]))
+    with pytest.raises(Exception, match=r"PLAN-HSHMO.*HMO1"):
+        policy_mod.load_policy(p)
+
+
+def test_fix5_empty_no_pa_evidence_gate_rejected(tmp_path):
+    p = _workflow_variant(tmp_path, lambda d: d.update(no_pa_evidence_gate=[]))
+    with pytest.raises(Exception, match="no_pa_evidence_gate"):
+        policy_mod.load_workflow(p)
+
+
+def test_fix5_unknown_no_pa_evidence_gate_rule_rejected(tmp_path):
+    p = _workflow_variant(tmp_path, lambda d: d.update(no_pa_evidence_gate=["DOC1"]))
+    with pytest.raises(Exception, match=r"no_pa_evidence_gate.*DOC1"):
+        policy_mod.load_workflow(p)
+
+
+@pytest.mark.parametrize("bad", [-90, 0, 1.5, True, "90"])
+def test_fix5_windows_must_be_positive_integers(tmp_path, bad):
+    p = _policy_variant(tmp_path, lambda d: d["windows"].update(resting_ecg=bad))
+    with pytest.raises(Exception, match="resting_ecg"):
+        policy_mod.load_policy(p)
+
+
+def test_fix5_config_errors_are_config_errors(tmp_path):
+    p = _workflow_variant(tmp_path, lambda d: d.update(no_pa_evidence_gate=[]))
+    with pytest.raises(policy_mod.ConfigError) as e:
+        policy_mod.load_workflow(p)
+    assert "workflow.yaml" in str(e.value)
+
+
+def test_fix5_one_rule_id_registry():
+    from app import rule_ids
+    from app.rules import evidence
+    assert set(rule_ids.EVIDENCE_RULES) <= set(rule_ids.ALL_RULE_IDS)
+    assert set(rule_ids.PLAN_EXTRA_RULES) <= set(rule_ids.EVIDENCE_RULES)
+    assert list(evidence.evaluate_evidence.__globals__["rule_ids"].EVIDENCE_RULES) == \
+        list(rule_ids.EVIDENCE_RULES)
+
+
+def test_fix5_config_hash_in_audit_and_changes_with_file(tmp_path):
+    from app.pdfs import MOCK_EXTRACTIONS
+    from app.service import Service
+    pol = tmp_path / "p.yaml"
+    wf = tmp_path / "w.yaml"
+    pol.write_bytes(policy_mod.POLICY_PATH.read_bytes())
+    wf.write_bytes(policy_mod.WORKFLOW_PATH.read_bytes())
+
+    def audit_hash(db):
+        s = Service(db_path=tmp_path / db, outbox_dir=tmp_path / "o", extractions_dir=MOCK_EXTRACTIONS,
+                    policy_path=pol, workflow_path=wf)
+        s.seed()
+        h = s.store.audit_rows("P01", "evaluation")[0]["detail"]["config_sha256"]
+        assert h == s.config_sha256 and len(h) == 64
+        s.store.close()
+        return h
+
+    h1 = audit_hash("a.db")
+    assert audit_hash("b.db") == h1                     # same bytes, same hash
+    wf.write_bytes(wf.read_bytes() + b"\n# comment only\n")
+    assert audit_hash("c.db") != h1                     # any byte change shows
+
+
+def test_fix5_config_hash_in_case_footer(svc):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    app.state.svc = svc
+    try:
+        with TestClient(app) as c:
+            page = c.get("/case/P01").text
+        assert svc.config_sha256 in page
+    finally:
+        del app.state.svc

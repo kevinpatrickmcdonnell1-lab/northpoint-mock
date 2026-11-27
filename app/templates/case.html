@@ -171,4 +171,5 @@
     {% endfor %}
   </table>
 </section>
+<footer class="small muted">Evaluated under {{ policy.policy_version }} as of {{ policy.eval_date }} · config SHA-256 (policy + workflow YAML) <span class="mono">{{ config_sha256 }}</span></footer>
 {% endblock %}

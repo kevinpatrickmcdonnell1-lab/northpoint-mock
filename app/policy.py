@@ -1,14 +1,17 @@
 """Load and validate policy + workflow config. All rule dates come from here (invariant 10)."""
 from __future__ import annotations
 
+import hashlib
 import re
 from datetime import date, timedelta
 from functools import cached_property
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+
+from app import rule_ids
 
 ROOT = Path(__file__).resolve().parent.parent
 POLICY_PATH = ROOT / "config" / "policy_sc_card_1_1.yaml"
@@ -17,6 +20,14 @@ WORKFLOW_PATH = ROOT / "config" / "workflow.yaml"
 WindowName = Literal[
     "benefits_response", "pri2_material_increase", "resting_ecg", "exercise_ecg", "prior_stress_echo"
 ]
+
+
+class ConfigError(ValueError):
+    """A config file failed validation. Raised at load (startup), never at request time."""
+
+
+# A window is a whole number of days > 0. strict=True rejects bools, floats and strings.
+WindowDays = Annotated[int, Field(strict=True, gt=0)]
 
 
 class _Cfg(BaseModel):
@@ -34,13 +45,21 @@ class Plan(_Cfg):
     pa: Literal["required", "not_required"]
     extra: list[str] = Field(default_factory=list)
 
+    @field_validator("extra")
+    @classmethod
+    def _known_extra_rules(cls, v: list[str]) -> list[str]:
+        bad = [r for r in v if r not in rule_ids.PLAN_EXTRA_RULES]
+        if bad:
+            raise ValueError(f"unknown plan rule ID(s) {bad}; allowed: {list(rule_ids.PLAN_EXTRA_RULES)}")
+        return v
+
 
 class Windows(_Cfg):
-    benefits_response: int
-    pri2_material_increase: int
-    resting_ecg: int
-    exercise_ecg: int
-    prior_stress_echo: int
+    benefits_response: WindowDays
+    pri2_material_increase: WindowDays
+    resting_ecg: WindowDays
+    exercise_ecg: WindowDays
+    prior_stress_echo: WindowDays
 
 
 def normalize_product(raw: Optional[str]) -> str:
@@ -89,10 +108,45 @@ class Workflow(_Cfg):
     owner_roles: list[str]
     tennr_products: list[str]
 
+    @field_validator("no_pa_evidence_gate")
+    @classmethod
+    def _known_gate_rules(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("must name at least one rule (an empty gate would pass with nothing "
+                             "checked)")
+        bad = [r for r in v if r not in rule_ids.EVIDENCE_RULES]
+        if bad:
+            raise ValueError(f"unknown rule ID(s) {bad}; allowed: {list(rule_ids.EVIDENCE_RULES)}")
+        return v
+
+
+def _load(model, path: Path, raw: bytes | None = None):
+    raw = path.read_bytes() if raw is None else raw
+    try:
+        return model.model_validate(yaml.safe_load(raw))
+    except ValidationError as e:
+        lines = [f"  {'.'.join(str(x) for x in err['loc'])}: {err['msg']}" for err in e.errors()]
+        raise ConfigError(f"{path.name} is invalid; fix it before starting:\n" + "\n".join(lines)) from None
+
 
 def load_policy(path: Path = POLICY_PATH) -> Policy:
-    return Policy.model_validate(yaml.safe_load(path.read_text()))
+    return _load(Policy, path)
 
 
 def load_workflow(path: Path = WORKFLOW_PATH) -> Workflow:
-    return Workflow.model_validate(yaml.safe_load(path.read_text()))
+    return _load(Workflow, path)
+
+
+def config_sha256(policy_bytes: bytes, workflow_bytes: bytes) -> str:
+    """SHA-256 over both YAML files' exact bytes (labelled, so the split point is unambiguous)."""
+    h = hashlib.sha256()
+    for label, b in ((b"policy", policy_bytes), (b"workflow", workflow_bytes)):
+        h.update(label + b"\0" + str(len(b)).encode() + b"\0" + b)
+    return h.hexdigest()
+
+
+def load_config(policy_path: Path = POLICY_PATH,
+                workflow_path: Path = WORKFLOW_PATH) -> tuple[Policy, Workflow, str]:
+    """Read each file once, validate it, and hash the same bytes that were validated."""
+    pb, wb = policy_path.read_bytes(), workflow_path.read_bytes()
+    return _load(Policy, policy_path, pb), _load(Workflow, workflow_path, wb), config_sha256(pb, wb)

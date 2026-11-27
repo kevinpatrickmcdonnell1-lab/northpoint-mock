@@ -7,6 +7,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+from app import rule_ids
 from app.models import Document, ExtractionFile, RuleResult
 from app.policy import Policy
 from app.rules.common import in_window, of_type, ref
@@ -180,7 +181,7 @@ def repeat1(ef, docs, policy: Policy) -> RuleResult:
 
 
 def hmo1(ef, docs, policy: Policy, plan_extra: list[str]) -> RuleResult:
-    if "HMO-1" not in plan_extra:
+    if rule_ids.HMO_1 not in plan_extra:
         return _r("HMO-1", "NA", "Not applicable: HMO-1 applies to PLAN-HSHMO only.")
     start = policy.window_start("resting_ecg")
     ok = [d for d in of_type(docs, "resting_ecg_report")
@@ -215,7 +216,9 @@ def common(results: dict[str, RuleResult]) -> RuleResult:
 
 def evaluate_evidence(ef: ExtractionFile, docs: list[Document], policy: Policy,
                       plan_extra: list[str]) -> dict[str, RuleResult]:
-    out = {"DOC-1": doc1(ef, docs), "QUAL-1": qual1(ef, docs), "QUAL-2": qual2(ef, docs, policy),
-           "REPEAT-1": repeat1(ef, docs, policy), "HMO-1": hmo1(ef, docs, policy, plan_extra)}
-    out["EVIDENCE"] = common(out)
+    r = rule_ids
+    out = {r.DOC_1: doc1(ef, docs), r.QUAL_1: qual1(ef, docs), r.QUAL_2: qual2(ef, docs, policy),
+           r.REPEAT_1: repeat1(ef, docs, policy), r.HMO_1: hmo1(ef, docs, policy, plan_extra)}
+    assert tuple(out) == r.EVIDENCE_RULES, "evidence rules out of sync with app/rule_ids.py"
+    out[r.EVIDENCE] = common(out)
     return out

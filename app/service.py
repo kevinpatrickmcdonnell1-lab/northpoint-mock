@@ -12,7 +12,7 @@ from typing import Any, Optional
 from app.engine import evaluate, state_hash
 from app.models import BenefitsResponseFields, CaseState, SimEvent
 from app.pdfs import extractions_dir as active_extractions_dir, load_extractions
-from app.policy import Policy, Workflow, load_policy, load_workflow
+from app.policy import POLICY_PATH, WORKFLOW_PATH, Policy, Workflow, load_config
 from app.store import Store
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -62,11 +62,16 @@ def diff(prev: Optional[dict], cur: dict) -> dict:
 class Service:
     def __init__(self, db_path: Path | str = DEFAULT_DB, outbox_dir: Path = DEFAULT_OUTBOX,
                  policy: Optional[Policy] = None, workflow: Optional[Workflow] = None,
-                 extractions_dir: Path | None = None):
+                 extractions_dir: Path | None = None,
+                 policy_path: Path = POLICY_PATH, workflow_path: Path = WORKFLOW_PATH):
+        # Validate config first, so a bad YAML fails at startup with a ConfigError (Fix 5).
+        loaded_policy, loaded_workflow, self.config_sha256 = load_config(policy_path, workflow_path)
         self.store = Store(db_path)
         self.outbox_dir = Path(outbox_dir)
-        self.policy = policy or load_policy()
-        self.workflow = workflow or load_workflow()
+        self.policy = policy or loaded_policy
+        self.workflow = workflow or loaded_workflow
+        if policy or workflow:
+            self.config_sha256 = "in-memory override (not from the YAML files)"
         self.extractions_dir = extractions_dir or active_extractions_dir()
 
     # ---- setup ----------------------------------------------------------------
@@ -90,7 +95,8 @@ class Service:
         cur = summarize(s)
         prev = self.store.last_evaluation(key)
         changes = diff(prev, cur)
-        detail = {"policy_version": s.policy_version, "eval_date": str(s.eval_date),
+        detail = {"policy_version": s.policy_version, "config_sha256": self.config_sha256,
+                  "eval_date": str(s.eval_date),
                   "state_hash": state_hash(s), **cur, "diff": changes}
         self.store.audit(key, wall_clock(), actor, "evaluation", detail)
         if kind == "state_change" and changes:

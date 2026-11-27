@@ -4,6 +4,7 @@ Clinical escalation actions are generated whatever the admin gates say.
 """
 from __future__ import annotations
 
+from app import rule_ids
 from app.models import NextAction, RuleResult, SimEvent
 from app.policy import Workflow
 from app.rules.common import latest
@@ -76,7 +77,7 @@ def build_actions(*, priority: RuleResult, identity: RuleResult, coverage: RuleR
 
     # 4. Evidence — only rules that gate for this plan (PPO: A2 advisory rules excluded)
     gating = (workflow.no_pa_evidence_gate if pa_requirement == "not_required"
-              else ["DOC-1", "QUAL-1", "QUAL-2", "REPEAT-1", "HMO-1"])
+              else list(rule_ids.EVIDENCE_RULES))
     rules = {k: criteria[k] for k in gating if criteria[k].status != "NA"}
     if any(r.status == "NM" for r in rules.values()):
         nm = [k for k, r in rules.items() if r.status == "NM"]

@@ -18,9 +18,14 @@ from app.metrics import business_days
 from app.pdfs import PAGES, TITLES
 from app.rules.common import why_unused
 from app.service import ALLOWED_ROLES, DEFAULT_DB, DEFAULT_OUTBOX, Service
+from app.policy import load_config
 
 HERE = Path(__file__).resolve().parent
 DB_PATH = Path(os.environ.get("NORTHPOINT_DB", DEFAULT_DB))
+
+# Fail fast (Fix 5): a bad policy/workflow YAML raises ConfigError when the app is imported,
+# i.e. at `uvicorn app.main:app` startup, not on the first request.
+load_config()
 
 app = FastAPI(title="Northpoint stress-echo readiness mock (SYNTHETIC)")
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
@@ -131,7 +136,8 @@ def case(request: Request, key: str, msg: Optional[str] = None):
         "recalls": [o for o in service.store.outbox(key) if o["work_item"]["type"] == handoffs.RECALL_TYPE],
         "active_sched": handoffs.active_scheduling_handoff(service, key),
         "policy": service.policy, "products": [p.product for p in service.policy.plans.values()],
-        "age": business_days(ef.received_at, service.policy.eval_date)})
+        "age": business_days(ef.received_at, service.policy.eval_date),
+        "config_sha256": service.config_sha256})
 
 
 @app.post("/case/{key}/simulate")
