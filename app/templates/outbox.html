@@ -20,7 +20,7 @@
   <tr>
     <td><a href="/outbox/{{ o.handoff_id }}">{{ o.handoff_id }}</a></td>
     <td><a href="/case/{{ o.patient_key }}">{{ o.patient_key }}</a></td>
-    <td>{{ o.work_item.type }}</td><td>{{ o.receiving_system }}</td>
+    <td>{{ o.work_item.type }}{% if o.work_item.original_handoff_id %}<div class="small"><b>recalls {{ o.work_item.original_handoff_id }}</b>: {{ o.work_item.failing_gates|join(', ') }}</div>{% endif %}</td><td>{{ o.receiving_system }}</td>
     <td class="small"><span class="st st-{{ 'pass' if d.status == 'delivered' else 'blocked' if d.status == 'dead_letter' else 'pending' }}">{{ d.status|replace('_',' ') }}</span>
       · {{ d.attempts }} attempt(s){% if d.last_error and d.status != 'delivered' %}<div class="muted">{{ d.last_error }}</div>{% endif %}
       {% if d.status in ('pending', 'retrying') %}<form method="post" action="/outbox/{{ o.handoff_id }}/retry"><button class="secondary">Retry</button></form>{% endif %}

@@ -149,6 +149,7 @@ def test_every_result_has_reason_or_evidence(key):
 def test_reason_codes_survive_transitions(svc):
     svc.simulate("P04", "IDENTITY_RESOLUTION", "confirmed", "Intake Coordinator", note="Epic",
                  confirmed={"dob": "1951-03-14", "member_id": "SCM-302177"}, epic_reference="EPIC-1")
+    send(svc, "P01", "pa_packet")                     # a PA decision needs a submitted packet
     svc.simulate("P01", "PAYER_PA_DECISION", "approved", "Auth Specialist")
     for k in KEYS:
         _check_results(svc.state(k))

@@ -49,10 +49,11 @@ def of_type(docs: list[Document], *types: str) -> list[Document]:
 
 
 def ref(ef: ExtractionFile, doc: Document, field: Optional[str] = None) -> EvidenceRef:
+    """Cite `field` on `doc`. Only a quote recorded FOR that field is used (Fix 8): with none,
+    the ref points at the document's first page with no quote, never at another field's quote."""
     quote = next((q for q in doc.quotes if q.field == field), None) if field else None
-    quote = quote or (doc.quotes[0] if doc.quotes else None)
     return EvidenceRef(file=ef.source_file, page=quote.page if quote else doc.pages[0],
-                       quote=quote.text if quote else None, doc_id=doc.doc_id)
+                       quote=quote.text if quote else None, doc_id=doc.doc_id, field=field)
 
 
 def id_ref(ef: ExtractionFile, doc: Document, field: str, value: str) -> EvidenceRef:

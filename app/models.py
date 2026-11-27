@@ -272,11 +272,15 @@ class SimEvent(Strict):
     epic_reference: Optional[str] = None
     # BENEFITS_RESPONSE: same schema as a benefits_response document's fields
     benefits: Optional[BenefitsResponseFields] = None
+    # PAYER_PA_DECISION: the pa_request_packet handoff this decision answers (Fix 2)
+    pa_handoff_id: Optional[str] = None
 
     @model_validator(mode="after")
     def _shape_by_type(self) -> "SimEvent":
         if self.decision not in _DECISIONS[self.type]:
             raise ValueError(f"{self.type}: invalid decision {self.decision!r}")
+        if self.pa_handoff_id is not None and self.type != "PAYER_PA_DECISION":
+            raise ValueError("pa_handoff_id is only valid on PAYER_PA_DECISION")
         if self.type == "IDENTITY_RESOLUTION":
             if not self.confirmed or not self.epic_reference or not self.note:
                 raise ValueError("IDENTITY_RESOLUTION needs confirmed values, epic_reference and a note")
@@ -301,6 +305,7 @@ class EvidenceRef(Strict):
     quote: Optional[str] = None
     doc_id: Optional[str] = None
     event_id: Optional[str] = None   # set when the basis is a SIMULATED event, not a PDF
+    field: Optional[str] = None      # the extraction field this ref cites (quote may be absent)
 
 
 class RuleResult(Strict):

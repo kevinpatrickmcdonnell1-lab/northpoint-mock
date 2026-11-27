@@ -122,7 +122,8 @@ class Store:
         q, args = "SELECT payload_json FROM outbox", ()
         if key:
             q, args = q + " WHERE patient_key=?", (key,)
-        return [json.loads(r[0]) for r in self.db.execute(q + " ORDER BY created_at, handoff_id", args)]
+        # rowid = insertion order (created_at has 1 s resolution, so ties are possible)
+        return [json.loads(r[0]) for r in self.db.execute(q + " ORDER BY rowid", args)]
 
     # ---- deliveries + simulated receiver outages (Stretch) --------------------
     def add_delivery(self, handoff_id: str, attempt: int, at: str, result: str,

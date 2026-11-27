@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import os
+from datetime import date
 from pathlib import Path
 from typing import Optional
-from urllib.parse import quote_plus
+from urllib.parse import quote, quote_plus, urlencode
 
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
@@ -18,9 +19,14 @@ from app.metrics import business_days
 from app.pdfs import PAGES, TITLES
 from app.rules.common import why_unused
 from app.service import ALLOWED_ROLES, DEFAULT_DB, DEFAULT_OUTBOX, Service
+from app.policy import load_config
 
 HERE = Path(__file__).resolve().parent
 DB_PATH = Path(os.environ.get("NORTHPOINT_DB", DEFAULT_DB))
+
+# Fail fast (Fix 5): a bad policy/workflow YAML raises ConfigError when the app is imported,
+# i.e. at `uvicorn app.main:app` startup, not on the first request.
+load_config()
 
 app = FastAPI(title="Northpoint stress-echo readiness mock (SYNTHETIC)")
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
@@ -30,7 +36,17 @@ STATUS_WORDS = {"S": "Supported", "NM": "Not met", "I": "Insufficient", "NA": "N
 OWNER_TABS = [("all", "All", None), ("triage", "Clinical Triage", "Clinical Triage RN"),
               ("review", "Clinical Review", "Clinical Review RN"), ("intake", "Intake", "Intake Coordinator"),
               ("auth", "Auth", "Auth Specialist"), ("ready", "Ready for scheduling", None)]
-templates.env.globals.update(STATUS_WORDS=STATUS_WORDS, TITLES=TITLES, quote_plus=quote_plus)
+
+
+def page_url(file: str, page: int, case: Optional[str] = None, q: Optional[str] = None,
+             field: Optional[str] = None) -> str:
+    """Page-viewer link. Carries the case key so the back link never guesses it (Fix 9)."""
+    params = {k: v for k, v in (("case", case), ("q", q), ("field", None if q else field)) if v}
+    return f"/page/{quote(file)}/{page}" + (f"?{urlencode(params)}" if params else "")
+
+
+templates.env.globals.update(STATUS_WORDS=STATUS_WORDS, TITLES=TITLES, quote_plus=quote_plus,
+                             page_url=page_url)
 
 
 def svc() -> Service:
@@ -63,7 +79,7 @@ def procedure(ef) -> str:
 
 def row(s, service: Service) -> dict:
     ef = service.store.case(s.patient_key)
-    sent = service.store.outbox_count(s.patient_key, "stress_echo_ready_to_schedule") > 0
+    sent = handoffs.active_scheduling_handoff(service, s.patient_key) is not None
     return {
         "s": s, "name": patient_name(ef), "packet": ef.packet_id, "procedure": procedure(ef),
         "plan": s.plan.detail.get("product") or "unresolved",
@@ -115,7 +131,7 @@ def reset():
 # ---------------------------------------------------------------- case detail
 
 @app.get("/case/{key}")
-def case(request: Request, key: str, msg: Optional[str] = None):
+def case(request: Request, key: str, msg: Optional[str] = None, form: Optional[str] = None):
     service = svc()
     try:
         ef = service.store.case(key)
@@ -128,14 +144,19 @@ def case(request: Request, key: str, msg: Optional[str] = None):
         "s": s, "ef": ef, "name": patient_name(ef), "procedure": procedure(ef), "docs": docs,
         "events": events, "audit": service.store.audit_rows(key)[:60],
         "outbox": service.store.outbox(key), "roles": ALLOWED_ROLES, "msg": msg,
+        "recalls": [o for o in service.store.outbox(key) if o["work_item"]["type"] == handoffs.RECALL_TYPE],
+        "active_sched": handoffs.active_scheduling_handoff(service, key),
         "policy": service.policy, "products": [p.product for p in service.policy.plans.values()],
-        "age": business_days(ef.received_at, service.policy.eval_date)})
+        "age": business_days(ef.received_at, service.policy.eval_date),
+        "config_sha256": service.config_sha256, "form": form})
 
 
 @app.post("/case/{key}/simulate")
 async def simulate(key: str, request: Request):
     form = dict((await request.form()).items())
     t = form.get("type", "")
+    recalls_before = {o["handoff_id"] for o in svc().store.outbox(key)
+                      if o["work_item"]["type"] == handoffs.RECALL_TYPE}
     kw: dict = {"actor_role": form.get("actor_role", ""), "actor_name": form.get("actor_name"),
                 "note": form.get("note")}
     try:
@@ -145,6 +166,15 @@ async def simulate(key: str, request: Request):
             ev = svc().simulate(key, t, "confirmed", confirmed=confirmed,
                                 epic_reference=form.get("epic_reference"), **kw)
         elif t == "BENEFITS_RESPONSE":
+            eval_date = svc().policy.eval_date
+            try:
+                rd = date.fromisoformat((form.get("response_date") or "").strip())
+            except ValueError:
+                rd = None
+            if rd is not None and rd > eval_date:
+                return go(f"/case/{key}?form=benefits", f"Not recorded: response date {rd} is after the "
+                          f"evaluation date {eval_date}, so the engine would ignore it (A8). "
+                          f"Use a date on or before {eval_date}.")
             b = {"response_date": form.get("response_date"), "payer": form.get("payer") or None,
                  "plan_product_raw": form.get("plan_product_raw") or None,
                  "member_id": form.get("member_id") or None,
@@ -156,8 +186,12 @@ async def simulate(key: str, request: Request):
     except (ValidationError, ValueError) as e:
         msg = e.errors()[0]["msg"] if isinstance(e, ValidationError) else str(e)
         return go(f"/case/{key}", f"Not recorded: {msg}")
+    new_recalls = [o["handoff_id"] for o in svc().store.outbox(key)
+                   if o["work_item"]["type"] == handoffs.RECALL_TYPE and o["handoff_id"] not in recalls_before]
+    recalled = (f" Case is no longer sendable: scheduling handoff recalled automatically "
+                f"({', '.join(new_recalls)}).") if new_recalls else ""
     return go(f"/case/{key}", f"SIMULATED event {ev.event_id} recorded ({ev.type} {ev.decision}); "
-                              "case re-evaluated and audited.")
+                              f"case re-evaluated and audited.{recalled}")
 
 
 @app.post("/case/{key}/handoff/{kind}")
@@ -170,6 +204,8 @@ def handoff(key: str, kind: str):
         "sent": f"Sent {label}: {r.get('handoff_id')} recorded in outbox (MOCK STUB); "
                 f"delivery {r.get('delivery')}.",
         "already_recorded": f"Already recorded as {r.get('handoff_id')} (idempotency key unchanged).",
+        "already_sent": f"Already sent to scheduling as {r.get('handoff_id')}; nothing recorded. "
+                        "A re-send is allowed only after a scheduling recall.",
         "blocked": f"BLOCKED {label}: failing gates {', '.join(r.get('failing_gates', []))}. "
                    "Attempt recorded in the audit trail.",
         "not_applicable": f"Not applicable: {r.get('reason')}",
@@ -179,8 +215,22 @@ def handoff(key: str, kind: str):
 
 # ---------------------------------------------------------------- pages, outbox, metrics
 
+def case_for_page(service: Service, file: str, page: int, case: Optional[str]) -> Optional[str]:
+    """The case a page belongs to: the ?case= key if it cites this file, else the extraction
+    whose documents cite this file and page (combined PDFs included). Never parsed from the name."""
+    keys = service.store.keys()
+    if case in keys and service.store.case(case).source_file == file:
+        return case
+    for k in keys:
+        ef = service.store.case(k)
+        if ef.source_file == file and any(page in d.pages for d in ef.documents):
+            return k
+    return None
+
+
 @app.get("/page/{file}/{page}")
-def page_viewer(request: Request, file: str, page: int, q: Optional[str] = None):
+def page_viewer(request: Request, file: str, page: int, q: Optional[str] = None,
+                field: Optional[str] = None, case: Optional[str] = None):
     txt = PAGES / file / f"{page}.txt"
     if "/" in file or ".." in file or not txt.exists():
         raise HTTPException(404, "Page not ingested. Run `make ingest`.")
@@ -192,9 +242,9 @@ def page_viewer(request: Request, file: str, page: int, q: Optional[str] = None)
         if i >= 0:
             j = i + len(" ".join(q.split()))
             parts = (norm[:i], norm[i:j], norm[j:])
-    key = file.split("_")[0]
+    key = case_for_page(svc(), file, page, case)
     return templates.TemplateResponse(request, "page.html", {
-        "file": file, "page": page, "q": q, "text": text, "parts": parts, "key": key})
+        "file": file, "page": page, "q": q, "text": text, "parts": parts, "key": key, "field": field})
 
 
 @app.get("/pages/{file}/{page}.png")

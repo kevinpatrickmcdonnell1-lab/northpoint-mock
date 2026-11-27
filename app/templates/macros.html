@@ -6,7 +6,7 @@
 <span class="st st-{{ status|lower|replace('_','-') }}">{{ STATUS_WORDS.get(status, status|replace('_',' ')) }}</span>
 {%- endmacro %}
 
-{% macro ref_link(r) -%}
+{% macro ref_link(r, key=None) -%}
 {% if r.event_id %}<span class="sim-badge">SIMULATED – not from PDF · {{ r.event_id }}</span>
-{% else %}<a class="ref" href="/page/{{ r.file }}/{{ r.page }}{% if r.quote %}?q={{ quote_plus(r.quote) }}{% endif %}">{{ r.file }} p.{{ r.page }}</a>{% endif %}
+{% else %}<a class="ref" href="{{ page_url(r.file, r.page, key, r.quote, r.field) }}"{% if not r.quote %} title="No quote recorded{% if r.field %} for {{ r.field }}{% endif %}"{% endif %}>{{ r.file }} p.{{ r.page }}</a>{% endif %}
 {%- endmacro %}

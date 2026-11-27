@@ -16,6 +16,8 @@ KINDS = {
     "triage": ("urgent_triage_notification", "Epic In Basket (MOCK STUB)", "TRIAGE"),
     "missing_info": ("missing_info_request", "Fax/Comms (MOCK STUB)", "INFO"),
 }
+SCHED_TYPE = KINDS["schedule"][0]
+RECALL_TYPE = "scheduling_recall"
 PA_PREP_GATES = ("G-ID", "G-COV", "G-PAREQ", "G-EVID")
 MISSING_CODES = {"EVID_MISSING_ORDER", "EVID_MISSING_REPORT", "EVID_HMO1", "COV_INACTIVE"}
 CLIN_CODES = {"CLIN_URGENT", "CLIN_EXPEDITED", "CLIN_UNDETERMINED", "CLIN_ROUTINE_REVIEW"}
@@ -29,6 +31,18 @@ def _gates(s: CaseState, names=None) -> list[dict]:
 def _evidence(s: CaseState) -> list[dict]:
     return [{"rule": k, "file": r.file, "page": r.page, "quote": r.quote}
             for k, v in s.criteria.items() if k != "EVIDENCE" for r in v.evidence_refs]
+
+
+def active_scheduling_handoff(svc: Service, key: str) -> dict | None:
+    """The case's scheduling handoff that has not been recalled since it was sent (at most one)."""
+    active = None
+    for o in svc.store.outbox(key):            # insertion order
+        t = o["work_item"]["type"]
+        if t == SCHED_TYPE:
+            active = o
+        elif t == RECALL_TYPE:
+            active = None
+    return active
 
 
 def send(svc: Service, key: str, kind: str, actor: str = "UI user") -> dict[str, Any]:
@@ -90,6 +104,14 @@ def send(svc: Service, key: str, kind: str, actor: str = "UI user") -> dict[str,
     existing = svc.store.outbox_by_key(idem)
     if existing:
         return {"result": "already_recorded", "handoff_id": existing["handoff_id"], "payload": existing}
+    if kind == "schedule":
+        # Fix 3: one active scheduling handoff per case. A re-send needs a scheduling_recall
+        # recorded since the last scheduling handoff; otherwise nothing is recorded.
+        active = active_scheduling_handoff(svc, key)
+        if active:
+            return {"result": "already_sent", "handoff_id": active["handoff_id"], "payload": active,
+                    "reason": "This order already has an active scheduling handoff. A re-send is "
+                              "allowed only after that handoff has been recalled."}
 
     n = svc.store.outbox_count(key, work_type) + 1
     payload = {
@@ -104,14 +126,54 @@ def send(svc: Service, key: str, kind: str, actor: str = "UI user") -> dict[str,
     # Defense in depth: never record a scheduling handoff with a failing gate.
     if kind == "schedule":
         assert all(g["status"] == "pass" for g in payload["gates_checked"]) and len(gates_checked) == 6
+    d = _record(svc, payload, actor)
+    return {"result": "sent", "handoff_id": payload["handoff_id"], "payload": payload,
+            "delivery": d["status"]}
+
+
+def _record(svc: Service, payload: dict, actor: str, audit_extra: dict | None = None) -> dict:
     at = wall_clock()
     svc.store.outbox_add(payload, at)
     svc.outbox_dir.mkdir(parents=True, exist_ok=True)
     (svc.outbox_dir / f"{payload['handoff_id']}.json").write_text(json.dumps(payload, indent=2, default=str))
-    svc.store.audit(key, at, actor, "handoff_sent", {"handoff_id": payload["handoff_id"],
-                                                     "kind": work_type, "idempotency_key": idem})
-    d = deliver(svc, payload["handoff_id"], actor="system (first attempt)")
-    return {"result": "sent", "handoff_id": payload["handoff_id"], "payload": payload,
+    svc.store.audit(payload["patient_key"], at, actor, "handoff_sent",
+                    {"handoff_id": payload["handoff_id"], "kind": payload["work_item"]["type"],
+                     "idempotency_key": payload["idempotency_key"], **(audit_extra or {})})
+    return deliver(svc, payload["handoff_id"], actor="system (first attempt)")
+
+
+def recall_if_needed(svc: Service, key: str, actor: str = "system (automatic recall)") -> dict | None:
+    """Fix 4: called by the service after every simulated event. If the case has an active
+    scheduling handoff and is no longer sendable, record ONE scheduling_recall for it.
+    Idempotent: once recalled, the handoff is no longer active, so later events add nothing."""
+    active = active_scheduling_handoff(svc, key)
+    if active is None:
+        return None
+    s = svc.state(key)
+    if s.scheduling_sendable:
+        return None
+    failing = [g.gate for g in s.gates if not g.passed]
+    reasons = [a.reason_code for a in s.actions]
+    ef = svc.store.case(key)
+    n = svc.store.outbox_count(key, RECALL_TYPE) + 1
+    item = {"type": RECALL_TYPE, "packet_id": ef.packet_id, "mrn": active["work_item"].get("mrn"),
+            "original_handoff_id": active["handoff_id"], "failing_gates": failing,
+            "failing_gate_basis": {g.gate: g.basis for g in s.gates if not g.passed},
+            "reason_codes": reasons,
+            "instruction": "Do not book, or release the slot: this order no longer passes every gate."}
+    payload = {
+        "handoff_id": f"HO-{key}-RECALL-{n}",
+        "idempotency_key": f"{ef.packet_id}:recall:{active['handoff_id']}",
+        "patient_key": key, "receiving_system": active["receiving_system"], "work_item": item,
+        "gates_checked": _gates(s), "evidence_refs": [],
+        "simulated_dependencies": [{"event_id": e.event_id, "type": e.type, "decision": e.decision,
+                                    "simulated": True} for e in svc.store.events(key)],
+        "policy_version": s.policy_version, "eval_date": str(s.eval_date), "status": "recorded",
+        "label": "SYNTHETIC – MOCK DATA",
+    }
+    d = _record(svc, payload, actor, {"original_handoff_id": active["handoff_id"],
+                                      "failing_gates": failing, "reason_codes": reasons})
+    return {"result": "recalled", "handoff_id": payload["handoff_id"], "payload": payload,
             "delivery": d["status"]}
 
 

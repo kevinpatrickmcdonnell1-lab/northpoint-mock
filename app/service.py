@@ -12,7 +12,7 @@ from typing import Any, Optional
 from app.engine import evaluate, state_hash
 from app.models import BenefitsResponseFields, CaseState, SimEvent
 from app.pdfs import extractions_dir as active_extractions_dir, load_extractions
-from app.policy import Policy, Workflow, load_policy, load_workflow
+from app.policy import POLICY_PATH, WORKFLOW_PATH, Policy, Workflow, load_config
 from app.store import Store
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -62,11 +62,16 @@ def diff(prev: Optional[dict], cur: dict) -> dict:
 class Service:
     def __init__(self, db_path: Path | str = DEFAULT_DB, outbox_dir: Path = DEFAULT_OUTBOX,
                  policy: Optional[Policy] = None, workflow: Optional[Workflow] = None,
-                 extractions_dir: Path | None = None):
+                 extractions_dir: Path | None = None,
+                 policy_path: Path = POLICY_PATH, workflow_path: Path = WORKFLOW_PATH):
+        # Validate config first, so a bad YAML fails at startup with a ConfigError (Fix 5).
+        loaded_policy, loaded_workflow, self.config_sha256 = load_config(policy_path, workflow_path)
         self.store = Store(db_path)
         self.outbox_dir = Path(outbox_dir)
-        self.policy = policy or load_policy()
-        self.workflow = workflow or load_workflow()
+        self.policy = policy or loaded_policy
+        self.workflow = workflow or loaded_workflow
+        if policy or workflow:
+            self.config_sha256 = "in-memory override (not from the YAML files)"
         self.extractions_dir = extractions_dir or active_extractions_dir()
 
     # ---- setup ----------------------------------------------------------------
@@ -90,7 +95,8 @@ class Service:
         cur = summarize(s)
         prev = self.store.last_evaluation(key)
         changes = diff(prev, cur)
-        detail = {"policy_version": s.policy_version, "eval_date": str(s.eval_date),
+        detail = {"policy_version": s.policy_version, "config_sha256": self.config_sha256,
+                  "eval_date": str(s.eval_date),
                   "state_hash": state_hash(s), **cur, "diff": changes}
         self.store.audit(key, wall_clock(), actor, "evaluation", detail)
         if kind == "state_change" and changes:
@@ -112,15 +118,28 @@ class Service:
         if actor_role not in ALLOWED_ROLES.get(type_, []):
             raise ValueError(f"{actor_role} cannot record {type_} (allowed: {ALLOWED_ROLES.get(type_)})")
         self.store.case(key)  # must exist
+        pa_handoff_id = None
+        if type_ == "PAYER_PA_DECISION":
+            # Fix 2: a payer can only decide on a PA request that was actually submitted.
+            packets = [o for o in self.store.outbox(key) if o["work_item"]["type"] == "pa_request_packet"]
+            if not packets:
+                raise ValueError(f"No PA request packet has been sent for {key}, so there is no "
+                                 "payer decision to record. Prepare the PA packet first.")
+            pa_handoff_id = packets[-1]["handoff_id"]
         ev = SimEvent(
             event_id=f"EV-{self.store.event_count() + 1:04d}", patient_key=key, type=type_,
             decision=decision, actor_role=actor_role, actor_name=actor_name or None,
             event_time=self.next_event_time(), recorded_at=datetime.now().replace(microsecond=0),
             note=note or None, confirmed=confirmed or None, epic_reference=epic_reference or None,
             benefits=BenefitsResponseFields.model_validate(benefits) if benefits else None,
+            pa_handoff_id=pa_handoff_id,
         )
         self.store.add_event(ev)
         self.store.audit(key, wall_clock(), actor_role, "sim_event",
                          {"simulated": True, **ev.model_dump(mode="json")})
         self.evaluate_and_record(key, actor=f"system (after {ev.event_id})", kind="state_change")
+        # Fix 4: a case that loses readiness after a scheduling handoff is recalled (service
+        # layer, not the engine: the engine stays pure and never records anything).
+        from app.handoffs import recall_if_needed
+        recall_if_needed(self, key)
         return ev

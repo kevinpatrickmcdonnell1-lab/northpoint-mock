@@ -9,6 +9,7 @@ from app.policy import Policy
 from app.rules.common import in_window, of_type, ref
 
 LABELS = {"PRI-1": "Urgent", "PRI-2": "Expedited", "PRI-3": "Routine", "PRI-4": "Unable to determine"}
+RANK = {"PRI-1": 1, "PRI-2": 2, "PRI-3": 3}  # lower = more urgent
 CODES = {"PRI-1": "CLIN_URGENT", "PRI-2": "CLIN_EXPEDITED", "PRI-3": None, "PRI-4": "CLIN_UNDETERMINED"}
 
 
@@ -75,6 +76,17 @@ def evaluate_priority(ef: ExtractionFile, docs: list[Document], policy: Policy) 
                              f"{_why(newest[0], tier, policy)}.", ef, newest)
 
     n = newest[0]
+    n_tier = _tier(n, policy)
+    # A3 (Fix 1): no field can document a deliberate downgrade, so an older candidate with a
+    # higher tier than the newest one is always unresolved, never silently overridden.
+    higher = [o for o in older if RANK[_tier(o, policy)] < RANK[n_tier]]
+    if higher:
+        listing = "; ".join(f"older {o.doc_type} ({o.date}) is {_tier(o, policy)} "
+                            f"{LABELS[_tier(o, policy)]}" for o in higher)
+        return _result("PRI-4", f"Newest signed source ({n.doc_type}, {n.date}) is {n_tier} "
+                                f"{LABELS[n_tier]}, but {listing}. No document records a deliberate "
+                                "downgrade, so this is unresolved (A3). Clinical triage must clarify.",
+                       ef, [n, *higher])
     documents_change = n.fields.material_increase_date is not None
     for o in older:
         if (_traj(n) != "not_stated" and _traj(o) != "not_stated" and _traj(n) != _traj(o)
@@ -82,7 +94,7 @@ def evaluate_priority(ef: ExtractionFile, docs: list[Document], policy: Policy) 
             return _result("PRI-4", f"Newer note ({n.date}) contradicts older {o.doc_type} ({o.date}) "
                                     "on symptom trajectory without documenting a material change (A3).",
                            ef, [n, o])
-    tier = _tier(n, policy)
+    tier = n_tier
     why = _why(n, tier, policy)
     note = " Overrides older timing because the newer note documents a material change." \
         if older and documents_change and any(_traj(o) not in ("not_stated", _traj(n)) for o in older) else ""

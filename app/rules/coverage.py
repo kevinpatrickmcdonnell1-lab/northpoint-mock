@@ -19,6 +19,22 @@ def _responses(ef, docs, events, policy) -> list[tuple[BenefitsResponseFields, E
     return [r for r in out if r[0].response_date <= policy.eval_date]
 
 
+def _ignored_after_eval(ef, events, policy) -> list[dict]:
+    """Fix 7: every benefits response A8 ignores (in-packet or simulated), so none vanishes silently.
+    In-packet documents dated after eval_date are already dropped by usable_docs(), so this
+    reads ef.documents directly."""
+    out = []
+    for d in of_type(ef.documents, "benefits_response"):
+        if d.fields.response_date > policy.eval_date or (d.date and d.date > policy.eval_date):
+            r = ref(ef, d, "response_date")
+            out.append({"response_date": str(d.fields.response_date), "source": f"{r.file} p.{r.page}"})
+    for ev in events:
+        if ev.type == "BENEFITS_RESPONSE" and ev.benefits.response_date > policy.eval_date:
+            out.append({"response_date": str(ev.benefits.response_date),
+                        "source": f"SIMULATED {ev.event_id}", "event_id": ev.event_id})
+    return out
+
+
 def _signature(f: BenefitsResponseFields) -> tuple:
     return ((f.member_id or "").upper(), normalize_product(f.plan_product_raw),
             f.coverage_active_on_eval_date, f.product_end_date)
@@ -30,9 +46,17 @@ def evaluate_coverage(ef: ExtractionFile, docs: list[Document], events: list[Sim
     responses = _responses(ef, docs, events, policy)
     in_win = [r for r in responses if r[0].response_date >= start]
 
+    ignored = _ignored_after_eval(ef, events, policy)
+    suffix = ""
+    if ignored:
+        n = len(ignored)
+        suffix = (f" {n} response{'s' if n > 1 else ''} dated "
+                  f"{', '.join(i['response_date'] for i in ignored)} ignored (after evaluation date "
+                  f"{policy.eval_date}, A8): {'; '.join(i['source'] for i in ignored)}.")
+
     def res(status, code, text, refs, **detail) -> RuleResult:
-        return RuleResult(rule_id="COV-1", status=status, reason_code=code, reason_text=text,
-                          evidence_refs=refs, detail=detail)
+        return RuleResult(rule_id="COV-1", status=status, reason_code=code, reason_text=text + suffix,
+                          evidence_refs=refs, detail={**detail, "ignored_after_eval_date": ignored})
 
     if not in_win:
         if responses:

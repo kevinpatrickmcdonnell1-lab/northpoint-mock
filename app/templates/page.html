@@ -1,11 +1,14 @@
 {% extends "base.html" %}
 {% block title %}{{ file }} p.{{ page }}{% endblock %}
 {% block content %}
-<p><a href="/case/{{ key }}">← back to {{ key }}</a></p>
+<p>{% if key %}<a href="/case/{{ key }}">← back to {{ key }}</a>{% else %}<a href="/">← back to queue</a> <span class="small muted">(no extraction cites this page)</span>{% endif %}</p>
 <h1>{{ file }} · page {{ page }}</h1>
 <section class="viewer">
   <img src="/pages/{{ file }}/{{ page }}.png" alt="{{ file }} page {{ page }}">
   <div>
+    {% if not q and field %}
+      <p class="small st st-pending">No quote recorded for {{ field }}; showing the page</p>
+    {% endif %}
     {% if q %}
       <h3>Cited quote</h3>
       <blockquote>{{ q }}</blockquote>

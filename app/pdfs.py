@@ -209,3 +209,30 @@ def check_extraction_file(path: Path, pages_root: Path = PAGES,
             if _norm(q.text) not in _norm(txt_path.read_text()):
                 errors.append(f"{path.name}: {d.doc_id} quote not on p.{q.page}: {q.text!r}")
     return errors
+
+
+# Judgment fields: values an extractor classified rather than copied. Each one set without a
+# quote of its own is reported (Fix 8) so a reviewer can see which links show only the page.
+JUDGMENT_FIELDS = ("complaint_type", "indication_type", "symptom_trajectory", "is_assessment",
+                   "assessment_complete", "symptom_course_documented", "relevant_history_documented",
+                   "ischemia_concern", "clinician_interpreted", "complete")
+_ABSENT = (None, False, "not_stated")
+
+
+def judgment_quote_warnings(path: Path) -> list[str]:
+    """WARNINGS (never errors): judgment fields set to a non-absent value with no field quote."""
+    try:
+        ef = ExtractionFile.model_validate_json(path.read_text())
+    except Exception:  # noqa: BLE001  (schema errors are reported by check_extraction_file)
+        return []
+    out = []
+    for d in ef.documents:
+        quoted = {q.field for q in d.quotes}
+        for f in JUDGMENT_FIELDS:
+            if not hasattr(d.fields, f):
+                continue
+            v = getattr(d.fields, f)
+            if v not in _ABSENT and f not in quoted:
+                out.append(f"{path.name}: {d.doc_id} {f}={v!r} has no quote of its own "
+                           f"(evidence link shows p.{d.pages[0]} without a highlight)")
+    return out

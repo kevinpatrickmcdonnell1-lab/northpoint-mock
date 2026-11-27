@@ -8,6 +8,7 @@
   <div class="card"><h3>Gate leaks</h3><p class="big {% if m.gate_leaks == 0 %}good{% else %}bad{% endif %}">{{ m.gate_leaks }}</p><p class="small">Orders that reached scheduling with an open gate (must be 0).</p></div>
   <div class="card"><h3>Blocked handoff attempts</h3><p class="big">{{ m.blocked_attempts }}</p><p class="small">Each one recorded with its failing gates.</p></div>
   <div class="card"><h3>Median admin readiness</h3><p class="big">{{ m.median_ready_bd if m.median_ready_bd is not none else '—' }}</p><p class="small">Business days, receipt → readiness (A7). Clinical clearance excluded.</p></div>
+  <div class="card"><h3>Scheduling recalls</h3><p class="big">{{ m.scheduling_recalls }}</p><p class="small">Sent automatically when a case lost readiness after its scheduling handoff.</p></div>
   <div class="card"><h3>Urgent triage notifications</h3><p class="big">{{ m.triage_notifications }}</p><p class="small">Sent to Epic In Basket (mock).</p></div>
 </section>
 

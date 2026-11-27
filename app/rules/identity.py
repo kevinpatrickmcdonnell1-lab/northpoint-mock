@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from datetime import date
 
 from app.models import Document, ExtractionFile, RuleResult, SimEvent
 from app.policy import Policy
@@ -19,7 +20,15 @@ def normalize_name(name: str) -> tuple[str, ...]:
 
 
 def _norm(field: str, value: str) -> object:
-    return normalize_name(value) if field == "name" else str(value).strip().upper()
+    if field == "name":
+        return normalize_name(value)
+    v = str(value).strip().upper()
+    if field == "dob":
+        try:
+            return date.fromisoformat(v).isoformat()
+        except ValueError:
+            return v
+    return v
 
 
 def evaluate_identity(ef: ExtractionFile, docs: list[Document], events: list[SimEvent],
@@ -54,11 +63,24 @@ def evaluate_identity(ef: ExtractionFile, docs: list[Document], events: list[Sim
             entry["status"] = "consistent" if values else "absent"
         fields[field] = entry
 
+    # Fix 6: Epic is the authority, so a confirmed value is accepted, but if it appears on no
+    # page of the packet that is surfaced, never hidden.
+    not_found = []
+    for f, ev in resolutions.items():
+        on_pages = {_norm(f, v["value"]) for v in fields[f]["values"]}
+        value = ev.confirmed[f]
+        if _norm(f, value) not in on_pages:
+            not_found.append({"field": f, "value": value, "epic_reference": ev.epic_reference,
+                              "event_id": ev.event_id})
+            fields[f]["confirmed_not_in_packet"] = True
+    warning = "".join(f" Warning: {x['field']} confirmed value {x['value']} not found in packet "
+                      f"(Epic ref {x['epic_reference']})." for x in not_found)
+
     conflicts = [f for f, e in fields.items() if e["status"] == "conflicting"]
     has_registration = bool(of_type(docs, "registration_face_sheet"))
     name_types = {v["doc_type"] for v in fields["name"]["values"]}
     dob_types = {v["doc_type"] for v in fields["dob"]["values"]}
-    detail = {"fields": fields}
+    detail = {"fields": fields, "confirmed_not_in_packet": not_found}
 
     if conflicts:
         refs = [id_ref(ef, next(d for d in docs if d.doc_id == v["doc_id"]), f, v["value"])
@@ -73,7 +95,7 @@ def evaluate_identity(ef: ExtractionFile, docs: list[Document], events: list[Sim
         listing = "; ".join(f"{f}: {group(f)}" for f in conflicts)
         return RuleResult(rule_id="ID-1", status="conflicting", reason_code="ID_CONFLICT",
                           reason_text=f"Conflicting identifiers, not auto-selected: {listing}. "
-                                      "Verify in Epic.", evidence_refs=refs, detail=detail)
+                                      "Verify in Epic." + warning, evidence_refs=refs, detail=detail)
     if not has_registration or len(name_types) < 2 or len(dob_types) < 2:
         missing = [] if has_registration else ["registration face sheet"]
         if len(name_types) < 2:
@@ -81,7 +103,7 @@ def evaluate_identity(ef: ExtractionFile, docs: list[Document], events: list[Sim
         if len(dob_types) < 2:
             missing.append("DOB on a second source type")
         return RuleResult(rule_id="ID-1", status="pending", reason_code="ID_PENDING",
-                          reason_text="Missing identity evidence: " + ", ".join(missing) + ".",
+                          reason_text="Missing identity evidence: " + ", ".join(missing) + "." + warning,
                           detail=detail)
 
     reg = of_type(docs, "registration_face_sheet")[0]
@@ -96,5 +118,6 @@ def evaluate_identity(ef: ExtractionFile, docs: list[Document], events: list[Sim
             f"{len(name_types | dob_types)} source types (packet-internal; Epic is the authority).")
     if resolved:
         text += f" Conflicts on {', '.join(resolved)} resolved by Intake in Epic (SIMULATED)."
+    text += warning
     return RuleResult(rule_id="ID-1", status="verified", reason_text=text, evidence_refs=refs,
                       detail=detail)

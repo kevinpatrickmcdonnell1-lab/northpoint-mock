@@ -83,6 +83,7 @@ def test_p03_triage_acts_while_admin_holds_remain(svc):
 
 
 def test_wrong_role_cannot_record_event(svc):
+    send(svc, "P01", "pa_packet")          # a PA decision needs a submitted packet
     with pytest.raises(ValueError):
         svc.simulate("P01", "PAYER_PA_DECISION", "approved", "Intake Coordinator")
     assert svc.store.event_count() == 0
