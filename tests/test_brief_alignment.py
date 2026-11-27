@@ -206,3 +206,59 @@ def test_brief3_labels_on_case_pages(tmp_path):
     finally:
         del app.state.svc
         s.store.close()
+
+
+# --------------------------------------------------------------------------- #
+# Brief fix 4. Direct proofs for the traceability doc (R4, R9, R10)            #
+# --------------------------------------------------------------------------- #
+
+def test_r4_pa_packet_only_when_required_and_id_cov_evidence_pass(svc):
+    # each condition alone blocks PA prep (mock set: one case per failing condition)
+    cases = {"P04": "G-ID", "P03": "G-COV", "P10": "G-EVID"}
+    for key, gate in cases.items():
+        r = send(svc, key, "pa_packet")
+        assert r["result"] == "blocked" and gate in r["failing_gates"], (key, r)
+    r = send(svc, "P02", "pa_packet")                       # PPO: PA not required
+    assert r["result"] == "blocked" and r["failing_gates"] == ["PA not required"]
+    r = send(svc, "P01", "pa_packet")                       # required + ID + COV + evidence S
+    assert r["result"] == "sent"
+    assert {g["gate"] for g in r["payload"]["gates_checked"]} == {"G-ID", "G-COV", "G-PAREQ", "G-EVID"}
+    assert all(g["status"] == "pass" for g in r["payload"]["gates_checked"])
+
+
+def test_r9_every_handoff_names_item_system_output_and_gates(svc):
+    send(svc, "P03", "triage")
+    send(svc, "P04", "identity_task")
+    send(svc, "P05", "missing_info")
+    send(svc, "P01", "pa_packet")
+    svc.simulate("P01", "PAYER_PA_DECISION", "approved", "Auth Specialist")
+    send(svc, "P01", "schedule")
+    out = svc.store.outbox()
+    assert {o["work_item"]["type"] for o in out} == {
+        "urgent_triage_notification", "identity_verification_task", "missing_info_request",
+        "pa_request_packet", "stress_echo_ready_to_schedule"}
+    for o in out:
+        assert o["work_item"]["type"] and "(MOCK STUB)" in o["receiving_system"]
+        assert o["status"] == "recorded" and (svc.outbox_dir / f"{o['handoff_id']}.json").exists()
+        assert "gates_checked" in o
+        if o["work_item"]["type"] == "stress_echo_ready_to_schedule":
+            assert len(o["gates_checked"]) == 6
+        if o["work_item"]["type"] == "pa_request_packet":
+            assert len(o["gates_checked"]) == 4
+
+
+def test_r10_no_clinical_treatment_decisions(svc):
+    from datetime import datetime
+    from pydantic import ValidationError
+    from app.models import SimEvent
+    for bad in ("start_beta_blocker", "admit", "order_cath", "treat"):
+        with pytest.raises(ValidationError):
+            SimEvent(event_id="EV-X", patient_key="P03", type="CLINICAL_REVIEW_DECISION", decision=bad,
+                     actor_role="Cardiologist", event_time=datetime(2026, 10, 1, 9),
+                     recorded_at=datetime(2026, 11, 27, 9))
+    # the engine's actions are routing/admin only: every one maps to a catalogued owner action
+    from app.actions import CATALOG
+    words = " ".join(a[0].lower() for a in CATALOG.values())
+    for w in ("prescribe", "medication", "dose", "admit", "treatment"):
+        assert w not in words
+    assert all(a.reason_code in CATALOG for k in svc.store.keys() for a in svc.state(k).actions)
