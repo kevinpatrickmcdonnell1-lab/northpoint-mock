@@ -77,6 +77,10 @@
       {% endfor %}
     </ol>
     <h2>Handoffs</h2>
+    {% if active_sched %}<p class="small">Active scheduling handoff: <a href="/outbox/{{ active_sched.handoff_id }}">{{ active_sched.handoff_id }}</a></p>{% endif %}
+    {% for r in recalls %}
+    <div class="flash flash-bad small"><b>RECALLED</b> {{ r.work_item.original_handoff_id }} by <a href="/outbox/{{ r.handoff_id }}">{{ r.handoff_id }}</a> (automatic, sent to {{ r.receiving_system }}): failing gates {{ r.work_item.failing_gates|join(', ') }} · reasons {{ r.work_item.reason_codes|join(', ') }}</div>
+    {% endfor %}
     <div class="buttons wrap">
       <form method="post" action="/case/{{ s.patient_key }}/handoff/schedule"><button>Send to scheduling</button></form>
       <form method="post" action="/case/{{ s.patient_key }}/handoff/pa_packet"><button class="secondary">Prepare PA packet</button></form>
@@ -160,6 +164,7 @@
         {% if a.kind == 'evaluation' %}{{ d.policy_version }} @ {{ d.eval_date }} · holds {{ d.failing_gates|join(', ') or 'none' }} · actions {{ d.actions|join(', ') }}{% if d.diff and not d.diff.initial %} · <b>changed:</b> {{ d.diff.keys()|join(', ') }}{% endif %}
         {% elif a.kind == 'handoff_blocked' %}<b>blocked</b> {{ d.kind }}: {{ d.failing_gates|join(', ') }}
         {% elif a.kind == 'sim_event' %}<span class="sim-badge">SIMULATED</span> {{ d.event_id }} {{ d.type }} {{ d.decision }}
+        {% elif a.kind == 'handoff_sent' and d.kind == 'scheduling_recall' %}<b>RECALL</b> {{ d.handoff_id }} recalls {{ d.original_handoff_id }}: {{ d.failing_gates|join(', ') }}
         {% elif a.kind == 'state_change' %}{{ d.diff.keys()|join(', ') }}
         {% else %}{{ d.kind }} {{ d.handoff_id or '' }}{% endif %}
       </td></tr>

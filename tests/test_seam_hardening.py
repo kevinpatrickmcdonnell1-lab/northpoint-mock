@@ -136,3 +136,66 @@ def test_fix3_ui_message(svc):
         assert r.status_code == 200 and "Already sent to scheduling as HO-P02-SCHED-1" in r.text
     finally:
         del app.state.svc
+
+
+# --------------------------------------------------------------------------- #
+# Fix 4. No recall when a case loses readiness after a scheduling handoff      #
+# --------------------------------------------------------------------------- #
+
+RECALL = "scheduling_recall"
+
+
+def _recalls(svc, key):
+    return [o for o in svc.store.outbox(key) if o["work_item"]["type"] == RECALL]
+
+
+def test_fix4_recall_full_loop(svc):
+    assert send(svc, "P02", "schedule")["handoff_id"] == "HO-P02-SCHED-1"
+    assert _recalls(svc, "P02") == []
+
+    svc.simulate("P02", "CLINICAL_REVIEW_DECISION", "not_cleared", "Cardiologist", note="hold")
+    assert not svc.state("P02").scheduling_sendable
+    recalls = _recalls(svc, "P02")
+    assert len(recalls) == 1
+    wi = recalls[0]["work_item"]
+    assert recalls[0]["handoff_id"] == "HO-P02-RECALL-1"
+    assert wi["original_handoff_id"] == "HO-P02-SCHED-1"
+    assert wi["failing_gates"] == ["G-CLIN"] and "CLIN_NOT_CLEARED" in wi["reason_codes"]
+    assert recalls[0]["receiving_system"].startswith("Epic Cadence")
+    assert (svc.outbox_dir / "HO-P02-RECALL-1.json").exists()
+    audit = [a for a in svc.store.audit_rows("P02", "handoff_sent") if a["detail"]["kind"] == RECALL]
+    assert len(audit) == 1 and audit[0]["detail"]["original_handoff_id"] == "HO-P02-SCHED-1"
+
+    # Unrelated event while still not sendable: no further recall.
+    svc.simulate("P02", "IDENTITY_RESOLUTION", "confirmed", "Intake Coordinator", note="Epic check",
+                 confirmed={"dob": "1968-07-30"}, epic_reference="EPIC-REG-12")
+    assert not svc.state("P02").scheduling_sendable
+    assert len(_recalls(svc, "P02")) == 1
+
+    # Cleared again: sendable, still one recall, and a second scheduling handoff is allowed.
+    svc.simulate("P02", "CLINICAL_REVIEW_DECISION", "cleared_for_scheduling", "Cardiologist")
+    assert svc.state("P02").scheduling_sendable and len(_recalls(svc, "P02")) == 1
+    again = send(svc, "P02", "schedule")
+    assert again["result"] == "sent" and again["handoff_id"] == "HO-P02-SCHED-2"
+    assert svc.store.outbox_count("P02", SCHED) == 2
+
+
+def test_fix4_no_recall_without_scheduling_handoff(svc):
+    svc.simulate("P02", "CLINICAL_REVIEW_DECISION", "not_cleared", "Cardiologist")
+    assert _recalls(svc, "P02") == []
+
+
+def test_fix4_case_page_and_outbox_show_recall(svc):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    send(svc, "P02", "schedule")
+    svc.simulate("P02", "CLINICAL_REVIEW_DECISION", "not_cleared", "Cardiologist")
+    app.state.svc = svc
+    try:
+        with TestClient(app) as c:
+            page = c.get("/case/P02").text
+            out = c.get("/outbox").text
+        assert "RECALLED" in page and "HO-P02-RECALL-1" in page and "HO-P02-SCHED-1" in page
+        assert "HO-P02-RECALL-1" in out and "recalls HO-P02-SCHED-1" in out
+    finally:
+        del app.state.svc

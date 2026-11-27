@@ -63,7 +63,7 @@ def procedure(ef) -> str:
 
 def row(s, service: Service) -> dict:
     ef = service.store.case(s.patient_key)
-    sent = service.store.outbox_count(s.patient_key, "stress_echo_ready_to_schedule") > 0
+    sent = handoffs.active_scheduling_handoff(service, s.patient_key) is not None
     return {
         "s": s, "name": patient_name(ef), "packet": ef.packet_id, "procedure": procedure(ef),
         "plan": s.plan.detail.get("product") or "unresolved",
@@ -128,6 +128,8 @@ def case(request: Request, key: str, msg: Optional[str] = None):
         "s": s, "ef": ef, "name": patient_name(ef), "procedure": procedure(ef), "docs": docs,
         "events": events, "audit": service.store.audit_rows(key)[:60],
         "outbox": service.store.outbox(key), "roles": ALLOWED_ROLES, "msg": msg,
+        "recalls": [o for o in service.store.outbox(key) if o["work_item"]["type"] == handoffs.RECALL_TYPE],
+        "active_sched": handoffs.active_scheduling_handoff(service, key),
         "policy": service.policy, "products": [p.product for p in service.policy.plans.values()],
         "age": business_days(ef.received_at, service.policy.eval_date)})
 

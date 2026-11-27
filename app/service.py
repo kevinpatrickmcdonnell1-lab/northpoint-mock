@@ -132,4 +132,8 @@ class Service:
         self.store.audit(key, wall_clock(), actor_role, "sim_event",
                          {"simulated": True, **ev.model_dump(mode="json")})
         self.evaluate_and_record(key, actor=f"system (after {ev.event_id})", kind="state_change")
+        # Fix 4: a case that loses readiness after a scheduling handoff is recalled (service
+        # layer, not the engine: the engine stays pure and never records anything).
+        from app.handoffs import recall_if_needed
+        recall_if_needed(self, key)
         return ev

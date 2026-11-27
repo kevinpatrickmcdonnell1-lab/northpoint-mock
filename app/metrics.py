@@ -26,7 +26,10 @@ def compute(svc: Service) -> dict[str, Any]:
     eval_date = svc.policy.eval_date
     outbox = svc.store.outbox()
     sched = [o for o in outbox if o["work_item"]["type"] == "stress_echo_ready_to_schedule"]
-    sent_keys = {o["patient_key"] for o in sched}
+    from app.handoffs import RECALL_TYPE, active_scheduling_handoff
+    # Only an active (not recalled) scheduling handoff counts as "handed to scheduling".
+    sent_keys = {k for k in svc.store.keys() if active_scheduling_handoff(svc, k)}
+    recalls = [o for o in outbox if o["work_item"]["type"] == RECALL_TYPE]
 
     counts = Counter()
     for s in states:
@@ -78,6 +81,7 @@ def compute(svc: Service) -> dict[str, Any]:
         "aging": {b: aging.get(b, 0) for b in ("0–2", "3–5", "6–10", ">10")},
         "ready_rows": rows, "median_ready_bd": median(ready_times) if ready_times else None,
         "gate_leaks": leaks, "blocked_attempts": blocked, "triage_notifications": len(triage),
+        "scheduling_recalls": len(recalls),
         "eval_date": eval_date, "n": len(states),
         "deliveries": {k: statuses.get(k, 0) for k in ("delivered", "retrying", "pending", "dead_letter")},
         "by_site": {k: dict(v) for k, v in sorted(by_site.items())},
