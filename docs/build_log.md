@@ -142,6 +142,12 @@ A review of the seams between document facts, policy config and simulated events
 - **Config hash:** `load_config()` reads each YAML once, validates those bytes and hashes the same bytes (SHA-256 over both files, labelled and length-prefixed). The hash is stored as `config_sha256` beside `policy_version` in every evaluation audit row, and shown in the case page footer.
 - **Verified:** the 11 Fix 5 tests failed first (no error raised; no registry; no `config_sha256`), then passed. `-90`, `0`, `True` and `"90"` are rejected; `1.5` already was. The hash test shows identical bytes give the same hash and a comment-only edit changes it. 252 tests pass.
 
+### Fix 6. Confirmed identity value not checked against the packet (code bug)
+- **Problem:** confirming P04's DOB as 1999-09-09, a value on no page, gave identity verified with no warning.
+- **Found by:** review.
+- **Fix:** `rules/identity.py` still accepts the confirmation (Epic is the authority). If a confirmed value matches no document value for that field, the reason text gets "Warning: dob confirmed value 1999-09-09 not found in packet (Epic ref …)". The flag is recorded in `detail.confirmed_not_in_packet` (and on the field entry), and the identity card shows a warning box. The check runs on every confirmed field, including one the packet did not dispute; before, such a confirmation was ignored silently. DOB comparison parses ISO dates, so formatting can't create a false warning.
+- **Verified:** the four Fix 6 tests (no-match flagged, match not flagged, undisputed field checked, case-page warning) failed first, then passed. 256 tests pass.
+
 ## Verification summary
 - `make test`: 228 tests, including the hand-derived real golden table (10 rows). Earlier counts: 194, then 217. Golden table, window boundaries, single-fact flips, invariants (gate leaks, no events from the engine, no derived keys, immutable sources via SQLite triggers, mutation tests on priority and unsigned docs, reason/evidence completeness, determinism, no patient-specific code), the four scripted transitions, an HTTP walkthrough of P01/P03/P04/P05/P08, and quote-on-page checks for all ten packets.
 - `make reset mock ingest check seed` from clean: ~5 s.

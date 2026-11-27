@@ -300,3 +300,49 @@ def test_fix5_config_hash_in_case_footer(svc):
         assert svc.config_sha256 in page
     finally:
         del app.state.svc
+
+
+# --------------------------------------------------------------------------- #
+# Fix 6. Confirmed identity value not checked against the packet               #
+# --------------------------------------------------------------------------- #
+
+from tests.helpers import event, run_key  # noqa: E402
+
+
+def _confirm(key, **confirmed):
+    return event(key, "IDENTITY_RESOLUTION", "confirmed", "Intake Coordinator", note="Epic",
+                 confirmed=confirmed, epic_reference="EPIC-REG-9")
+
+
+def test_fix6_confirmed_value_not_in_packet_is_flagged():
+    s = run_key("P04", [_confirm("P04", dob="1999-09-09", member_id="SCM-302177")])
+    assert s.identity.status == "verified"                     # still accepted: Epic is the authority
+    assert "confirmed value 1999-09-09 not found in packet (Epic ref EPIC-REG-9)" in s.identity.reason_text
+    flags = s.identity.detail["confirmed_not_in_packet"]
+    assert [(f["field"], f["value"]) for f in flags] == [("dob", "1999-09-09")]
+
+
+def test_fix6_confirmed_value_on_a_page_is_not_flagged():
+    s = run_key("P04", [_confirm("P04", dob="1951-03-14", member_id="SCM-302177")])
+    assert s.identity.status == "verified"
+    assert "not found in packet" not in s.identity.reason_text
+    assert s.identity.detail["confirmed_not_in_packet"] == []
+
+
+def test_fix6_confirmation_of_undisputed_field_also_checked():
+    s = run_key("P02", [_confirm("P02", dob="1970-01-01")])
+    assert "confirmed value 1970-01-01 not found in packet" in s.identity.reason_text
+
+
+def test_fix6_case_page_warning(svc):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    svc.simulate("P04", "IDENTITY_RESOLUTION", "confirmed", "Intake Coordinator", note="Epic",
+                 confirmed={"dob": "1999-09-09", "member_id": "SCM-302177"}, epic_reference="EPIC-REG-9")
+    app.state.svc = svc
+    try:
+        with TestClient(app) as c:
+            page = c.get("/case/P04").text
+        assert "id-warning" in page and "1999-09-09" in page and "not found in packet" in page
+    finally:
+        del app.state.svc

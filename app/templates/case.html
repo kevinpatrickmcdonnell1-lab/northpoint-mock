@@ -16,6 +16,9 @@
     <h3>Identity (ID-1)</h3>
     <p>{{ st(s.identity.status) }}</p>
     <p class="small">{{ s.identity.reason_text }}</p>
+    {% for x in s.identity.detail.confirmed_not_in_packet %}
+      <div class="flash flash-bad small id-warning">⚠ Confirmed {{ x.field }} <b class="mono">{{ x.value }}</b> (Epic ref {{ x.epic_reference }}, <span class="sim-badge">SIMULATED</span> {{ x.event_id }}) is not found in packet: it matches no value on any page. Accepted because Epic is the authority; check it was keyed correctly.</div>
+    {% endfor %}
     {% for f, e in s.identity.detail.fields.items() if e.status in ('conflicting', 'resolved') %}
       <div class="conflict">
         <b>{{ f }}</b> — {{ e.status }}{% if e.status == 'resolved' %}: <b>{{ e.confirmed }}</b> confirmed in Epic ({{ e.epic_reference }}) <span class="sim-badge">SIMULATED – not from PDF</span>{% endif %}
