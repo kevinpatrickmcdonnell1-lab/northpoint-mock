@@ -54,3 +54,8 @@ Every judgment call on rule wording, with its rule ID. Flags A1–A2 live in `co
 | B22 | QUAL-1 | Orders carry `indication_type`; QUAL-1 compares it with the assessment's `complaint_type`. The B9 keyword match is a fallback for older extractions. | Real indications describe exertion without the word "exertional". |
 | B23 | REPEAT-1 | Prior-stress-echo history comes from the assessment if it states it, else from the newest signed clinician addendum that does. | The real packets supply it as a dated, signed addendum. |
 | B24 | Dataset switch | The real set activates only when all cited source PDFs are present. | Prevents a broken page viewer and quote check. |
+
+## Seam hardening (2026-11-27, branch `fix/seam-hardening`)
+| ID | Where | Call | Why |
+|---|---|---|---|
+| A3a | PRI (PLAN A3) | If any older signed candidate has a higher tier (PRI-1 > PRI-2 > PRI-3) than the newest candidate, the result is PRI-4, and the reason names both documents and their tiers. A documented material change in the newer note does not excuse it. | No current field can document a deliberate downgrade ("urgent review no longer needed"), so a newer note that simply doesn't repeat an urgent/expedited request is unresolved, not an override. Under-triage is the costly error. |

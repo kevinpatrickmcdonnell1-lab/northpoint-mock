@@ -106,6 +106,16 @@ Found while extracting, before the engine ran. Each change keeps the mock regres
 - **Impact: none.** All ten boxes were unticked when read, no corrections were given, and VS Code and Cursor local history (which keep a copy on every save) hold no saved version of `extraction_review.md`. The sheet was never edited and saved before it was regenerated, so nothing was lost.
 - **Lesson:** read and diff user-edited files before regenerating them.
 
+## 2026-11-27 · Seam hardening (branch `fix/seam-hardening`)
+
+A review of the seams between document facts, policy config and simulated events found ten problems. Each fix below was driven by a reproducing test written first and confirmed failing, and neither expected-results table (`tests/test_golden_ten.py`, `tests/golden_real.yaml`) changed.
+
+### Fix 1. Older urgent/expedited request silently downgraded (code bug, A3)
+- **Problem:** with one newest priority candidate, an older candidate counted as contradicting only when the stated trajectories differed. An older signed referral requesting urgent review, followed by a newer note that doesn't repeat the request, gave PRI-3 with no flag.
+- **Found by:** review. Reproduced on a P03 variant built in the test (09-15 referral `urgent_review_requested=true, new_symptoms_at_rest`; 09-29 note urgent=false, no material increase): PRI-3, expected PRI-4.
+- **Fix:** `rules/priority.py`: if any older candidate's tier is higher than the newest candidate's, return PRI-4 and name both documents and their tiers. Logged as A3a in `assumptions.md`.
+- **Verified:** `test_fix1_older_higher_tier_is_pri4_not_downgrade` and `test_fix1_older_expedited_also_unresolved` failed with `'PRI-3' == 'PRI-4'`, then passed. Golden tables unchanged (no current case has an older higher-tier candidate).
+
 ## Verification summary
 - `make test`: 228 tests, including the hand-derived real golden table (10 rows). Earlier counts: 194, then 217. Golden table, window boundaries, single-fact flips, invariants (gate leaks, no events from the engine, no derived keys, immutable sources via SQLite triggers, mutation tests on priority and unsigned docs, reason/evidence completeness, determinism, no patient-specific code), the four scripted transitions, an HTTP walkthrough of P01/P03/P04/P05/P08, and quote-on-page checks for all ten packets.
 - `make reset mock ingest check seed` from clean: ~5 s.
