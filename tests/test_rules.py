@@ -215,6 +215,10 @@ def test_flag_A1_routine_requires_clearance():
 def test_flag_A2_ppo_evidence_gate_configurable():
     fn = lambda d: assessment_of(d)["fields"].update(prior_stress_echo={"stated": True, "date": "2026-08-01"}, interval_change_after_prior=False)  # noqa: E731
     ef = mutate("P02", fn)
-    assert run(ef).scheduling_sendable                       # REPEAT-1 is advisory for PPO
-    wf = WORKFLOW.model_copy(update={"no_pa_evidence_gate": ["DOC-1", "REPEAT-1"]})
-    assert not run(ef, workflow=wf).scheduling_sendable
+    # New default (brief R5): REPEAT-1 not met blocks a no-PA plan too.
+    s = run(ef)
+    assert not s.scheduling_sendable and failing_gates(s) == {"G-EVID"}
+    assert "EVID_NOT_MET" in action_codes(s)
+    # Still configurable: an override that gates on DOC-1 only lets it through (old A2 reading).
+    wf = WORKFLOW.model_copy(update={"no_pa_evidence_gate": ["DOC-1"]})
+    assert run(ef, workflow=wf).scheduling_sendable

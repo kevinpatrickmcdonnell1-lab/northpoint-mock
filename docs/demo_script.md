@@ -39,7 +39,7 @@ Hypothesis → discovery questions (PLAN §1.7). Note which assumptions the room
 - **Send to scheduling** → **sent**, `HO-R02-SCHED-1`. Open it in the outbox: all six gates pass, plus evidence refs, `simulated_dependencies` and the idempotency key. Click again → **already recorded** (no second handoff).
 
 ## 5. R05 clearance, send, then automatic recall (6 min) · *Ops, Clinical, IT*
-- R05 is a PPO (no PA) and admin-ready, but **PRI-2 Expedited**: the only hold is **G-CLIN**. **Send to scheduling** → **BLOCKED: G-CLIN**.
+- R05 is a PPO (no PA) and admin-ready, but **PRI-2 Expedited**: the only hold is **G-CLIN**. "No PA removes only the PA step: identity, coverage, every evidence rule and clinical review still gate scheduling." **Send to scheduling** → **BLOCKED: G-CLIN**.
 - **Simulate clinical decision → cleared_for_scheduling** (Clinical Review RN) → `EV-0002`; sendable.
 - **Send to scheduling** → `HO-R05-SCHED-1`.
 - Now the Cardiologist changes their mind: **Simulate clinical decision → not_cleared** (Cardiologist) → `EV-0003`. The flash reads "…scheduling handoff recalled automatically (HO-R05-RECALL-1)": the case lost readiness, and the system **automatically recorded `HO-R05-RECALL-1`** to the same scheduling stub. The payload names the original handoff `HO-R05-SCHED-1`, failing gate **G-CLIN** and reason **CLIN_NOT_CLEARED**.
@@ -67,7 +67,7 @@ Open `/metrics` ("10-case mock illustration, not a forecast"). After the steps a
 1–2 sites, stress echo only, 8–12 weeks, baseline from the prior 3 months. Primary: disruption rate by cause, readiness time and aging. Secondary: handling-time sample, touches. Guardrails: **0 gate leaks** (Metrics shows it), time-to-triage. Compare against non-pilot sites.
 
 ## A note on flipping A1/A2
-Don't flip A1 (`routine_requires_clinical_clearance`) or A2 (`no_pa_evidence_gate`) live. The policy is read when the app starts, so a flip takes a YAML edit plus **Reset**, and Reset clears every simulated event, handoff and audit row, which wipes the state you've built. Describe the flip instead. The effect is pinned by tests (`test_flag_A1_routine_requires_clearance`, `test_flag_A2_ppo_evidence_gate_configurable`). A typo in either flag now stops the app at startup with a clear message instead of failing open, and the case-page footer shows the config SHA-256, so any edit is visible.
+A2 now follows the brief (R5): a no-PA plan skips only the PA step, so `no_pa_evidence_gate` defaults to DOC-1, QUAL-1, QUAL-2 and REPEAT-1. Both flags remain config switches to confirm in discovery. Don't flip A1 (`routine_requires_clinical_clearance`) or A2 (`no_pa_evidence_gate`) live. The policy is read when the app starts, so a flip takes a YAML edit plus **Reset**, and Reset clears every simulated event, handoff and audit row, which wipes the state you've built. Describe the flip instead. The effect is pinned by tests (`test_flag_A1_routine_requires_clearance`, `test_flag_A2_ppo_evidence_gate_configurable`). A typo in either flag now stops the app at startup with a clear message instead of failing open, and the case-page footer shows the config SHA-256, so any edit is visible.
 
 ## Build debrief (50–65 min)
 - **How I directed the agent:** CLAUDE.md invariants, a hand-derived golden table written first (`tests/test_golden_ten.py`, `tests/golden_real.yaml`), phased checkpoints, rules as pure functions over facts + events + policy.

@@ -1,12 +1,12 @@
 # Assumptions and interpretation calls
 
-Every judgment call on rule wording, with its rule ID. Flags A1–A2 live in `config/workflow.yaml` and can be flipped live in the demo.
+Every judgment call on rule wording, with its rule ID. Flags A1–A2 live in `config/workflow.yaml`. They are config switches to confirm in discovery; a change takes a restart plus Reset, so don't flip them mid-demo.
 
 ## From PLAN §7.4
 | ID | Rule | Call |
 |---|---|---|
 | A1 | G-CLIN | `routine_requires_clinical_clearance: false`. PRI-3 orders need no nursing sign-off before scheduling. *Ask Intake/Clinical.* When flipped on, routine cases get `CLIN_ROUTINE_REVIEW` → Clinical Review RN. |
-| A2 | G-EVID | `no_pa_evidence_gate: [DOC-1]`. For no-PA plans (PPO), only DOC-1 gates. QUAL/REPEAT are shown as advisory and generate no actions. |
+| A2 | G-EVID | **Changed 2026-11-27 to follow the brief (R5):** `no_pa_evidence_gate: [DOC-1, QUAL-1, QUAL-2, REPEAT-1]`. A no-PA plan (PPO) skips only the PA step; identity, coverage, the signed order and the clinical evidence still gate scheduling, and a not-met or insufficient rule generates its usual action. HMO-1 stays plan-specific. *Was:* `[DOC-1]`, with QUAL/REPEAT advisory for PPO. The flag stays a config switch to confirm in discovery. |
 | A3 | PRI-4 | A newer note that contradicts older timing without documenting a change → PRI-4, not an override. |
 | A4 | HMO-1 | Only an out-of-window resting ECG → *insufficient* (same action: request a current report). |
 | A5 | ID-1 | Name differences other than case/punctuation/whitespace/missing middle initial (nicknames and token order included) → conflict for human review. |
@@ -66,3 +66,4 @@ Every judgment call on rule wording, with its rule ID. Flags A1–A2 live in `co
 | B29 | ID-1 (Fix 6) | A confirmed value that appears on no page is still accepted and flagged ("not found in packet"); identity status is unchanged. The check covers every confirmed field, not just conflicting ones, and matching uses the same normalization as conflict detection (names per A5, DOB as ISO date, others case-insensitive). | Epic is the authority (PLAN §1.6.5), so the mock can't overrule it, but a keying error must be visible. |
 | B30 | COV-1 / UI (Fix 7) | A8 is unchanged: late responses are still ignored. The UI form refuses to create one, but `Service.simulate` does not, so the engine's handling (named in the reason text) remains the single rule. An in-packet response counts as late if either its `response_date` or its document date is after the evaluation date. | Matches `usable_docs` (document date) and `_responses` (response date), so nothing either filter drops goes unnamed. |
 | B31 | Evidence refs (Fix 8) | A judgment field counts as "set" when its value is not `None`, `False` or `not_stated` (the B1 "absent" defaults), so `complete=True` (the resting-ECG default) is reported if unquoted. A `False` judgment is not reported. | B1 defaults mean "absent"; reporting them would bury the real gaps. |
+| B32 | Actions (brief fix 1) | On a no-PA plan, a not-met gating rule emits the usual `EVID_NOT_MET` action (owner: Auth Specialist, "Do not prepare PA. Review with ordering clinician"). The code and owner are kept so not-met is handled the same way on every plan; "do not prepare PA" is trivially true for a plan with no PA step. | One review path for not-met. Who reviews not-met PPO orders (Auth or Intake) is worth asking in discovery. |

@@ -43,7 +43,7 @@
 
 <section>
   <h2>Criteria</h2>
-  <p class="small muted">"Not met" is not a denial. "Supported" is not an approval.{% if s.pa_requirement == 'not_required' %} PPO: only {{ s.gates|selectattr('gate','equalto','G-EVID')|map(attribute='basis')|first }}; the rest are shown for visibility.{% endif %}</p>
+  <p class="small muted">"Not met" is not a denial. "Supported" is not an approval.{% if s.pa_requirement == 'not_required' %} No-PA plan: the PA step is skipped; identity, coverage, evidence and clinical checks still apply.{% endif %}</p>
   <table>
     <thead><tr><th>Rule</th><th>Status</th><th>Reason</th><th>Evidence</th></tr></thead>
     <tbody>
