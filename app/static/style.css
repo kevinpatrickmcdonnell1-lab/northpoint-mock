@@ -302,3 +302,11 @@ details summary { cursor:pointer; margin-top:8px; }
 .fact-correct label { display:block; margin:4px 0; }
 .fact-correct input, .fact-correct textarea { width:100%; box-sizing:border-box; }
 .chip.warn { background:var(--warnbg); color:var(--warn); }
+
+/* Personas */
+.persona-switch { display:inline-flex; align-items:center; margin:0 6px; }
+.persona-switch select { font:inherit; font-size:12px; padding:3px 6px; border:1px solid var(--line-2); border-radius:2px; background:transparent; color:inherit; margin-left:4px; max-width:220px; }
+.persona-note { background:var(--okbg); color:var(--ok); padding:6px 10px; border-radius:2px; }
+.work-go { white-space:nowrap; }
+.work-go form { display:inline; margin-right:6px; }
+@media (max-width: 720px) { .persona-switch select { max-width:150px; } }

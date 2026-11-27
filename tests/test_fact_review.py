@@ -257,3 +257,11 @@ def test_queue_fact_review_tab(buggy_svc):
             assert "R01" in t and "fact flag" in t
     finally:
         del app.state.svc
+
+
+def test_page_viewer_title_is_just_the_page(client):
+    """Regression: the review script was once pasted into the <title> block too."""
+    import re
+    page = client.get("/page/P02_packet.pdf/2?case=P02").text
+    assert re.search(r"<title>(.*?)</title>", page, re.S).group(1).strip() == "P02_packet.pdf p.2 · SYNTHETIC"
+    assert page.count("form[data-reviewer]") == 1

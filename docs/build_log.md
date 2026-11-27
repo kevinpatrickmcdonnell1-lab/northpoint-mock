@@ -236,7 +236,18 @@ Aligns the mock with the interview brief's requirements R1–R10 (see `docs/requ
 - **Found by:** item 17. The checks also found 11 weak quotes on the real packets: on 9 orders `procedure` is quoted as "Separate diagnostic order", and on 2 notes `timing_text` is quoted as a fragment. They are left in the data on purpose, as live items for the review flow (see B34).
 - **Verified:** `tests/test_fact_review.py` (28 tests): the check catches the reintroduced bug; mock packets raise no flags; a correction changes results only through the rules and leaves `cases` unchanged; ten kinds of bad correction are refused and record nothing; clinical facts need a clinical role; a correction after a scheduling handoff triggers the recall; `fact_reviews` rejects UPDATE/DELETE; open flags never change any engine result; HTTP flow; handoff payload provenance.
 
+### 19. Fact-review script pasted into the page viewer's <title> (code bug)
+- **What:** when the reviewer script was added to `page.html`, a replace on `{% endblock %}` matched the title block as well as the content block. The script was emitted inside `<title>` (where it shows as text in the browser tab) and a second time in the body.
+- **Found by:** step 1 of the persona work, when an edit to the same script matched twice.
+- **Fix:** the title block is just the file and page again, and the script appears once.
+- **Verified:** `tests/test_fact_review.py::test_page_viewer_title_is_just_the_page` failed against the broken template and passes now. Lesson: never replace a string that every template shares.
+
+### 20. Personas: sign-in, attribution, My Work (feature, step 1 of the persona-driven UI)
+- **What:** an "Acting as" switch in the header (8 fictional personas, or Presenter mode). With a persona chosen, the server attributes every event, fact review, handoff and re-run to that persona, whatever the form says. Each role sees only the controls it may use, and a refused write is shown as "Not recorded" (refused handoffs are audited as `handoff_blocked`). `/work` lists the persona's own items (next actions they own, plus fact flags of their kind), sorted by priority then age, with other teams' holds shown read-only and a one-click handoff where one does the job.
+- **Verified:** `tests/test_personas.py` (16 tests): sign-in and landing, each role's list on the mock set, spoofed role/name ignored, benefits entered by Intake attributed to the mock IBM, wrong-role writes refused (and audited for handoffs), read-only roles can't write, fact reviews attributed, role pickers dropped, the before-engine-run state, and fact flags routed by kind on the real set. Presenter mode is unchanged (all earlier tests pass as before).
+
 ## Verification summary
+- **After personas step 1 (2026-11-27):** `make test`: 381 tests (17 new: 16 persona + 1 title regression). Both golden tables unchanged.
 - **After fact review (2026-11-27):** `make test`: 364 tests (28 new); `make check`: 0 errors, 143 warnings. Both golden tables unchanged.
 - **After the UI rework, rebased on brief alignment (2026-11-27):** `make test`: 336 tests; `make check`: 0 errors, 143 warnings. Both golden tables unchanged.
 - **After brief alignment (2026-11-27):** `make test`: 327 tests; `make check`: 0 errors, 143 warnings. Both golden tables unchanged.

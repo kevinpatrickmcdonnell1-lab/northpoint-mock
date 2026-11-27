@@ -14,10 +14,20 @@
   <div class="synthetic">SYNTHETIC – MOCK DATA · all names and IDs are fictional · not connected to any real system</div>
   <header class="top">
     <a class="brand" href="/"><span class="word">Northpoint</span><span class="x">×</span><span class="word">Tennr</span><span class="sub">Stress-echo readiness · mock</span></a>
+    {% set me = persona_of(request) %}
     <nav>
+      {% if me and not me.read_only %}<a href="/work" class="{% if request.url.path == '/work' %}on{% endif %}">My work</a>{% endif %}
       <a href="/" class="{% if request.url.path == '/' %}on{% endif %}">Queue</a>
       <a href="/outbox" class="{% if request.url.path.startswith('/outbox') %}on{% endif %}">Outbox</a>
       <a href="/metrics" class="{% if request.url.path == '/metrics' %}on{% endif %}">Metrics &amp; pilot</a>
+      <form method="post" action="/persona" class="persona-switch" title="Who is using the app. Every action is recorded under this name and role.">
+        <label class="small">Acting as
+          <select name="persona" onchange="this.form.submit()">
+            <option value="" {% if not me %}selected{% endif %}>Presenter (all roles)</option>
+            {% for k, x in PERSONAS.items() %}<option value="{{ k }}" {% if me and me.key == k %}selected{% endif %}>{{ x.name }} · {{ x.role }}</option>{% endfor %}
+          </select></label>
+        <noscript><button class="btn-small">Switch</button></noscript>
+      </form>
       <button type="button" class="lens-toggle" onclick="npLens()" title="Show what changes, what Northpoint measures and the discovery question for each layer (key: V)">Value lens</button>
     </nav>
   </header>

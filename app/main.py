@@ -16,12 +16,12 @@ from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
 from app import fact_review as fr
-from app import handoffs, metrics, presenter
+from app import handoffs, metrics, personas, presenter
 from app.engine import evaluate
 from app.metrics import business_days
 from app.pdfs import PAGES, TITLES
 from app.rules.common import why_unused
-from app.service import ALLOWED_ROLES, DEFAULT_DB, DEFAULT_OUTBOX, Service
+from app.service import ALLOWED_ROLES, DEFAULT_DB, DEFAULT_OUTBOX, Service, wall_clock
 from app.policy import load_config
 
 HERE = Path(__file__).resolve().parent
@@ -50,7 +50,19 @@ def page_url(file: str, page: int, case: Optional[str] = None, q: Optional[str] 
     return f"/page/{quote(file)}/{page}" + (f"?{urlencode(params)}" if params else "")
 
 
-templates.env.globals.update(STATUS_WORDS=STATUS_WORDS, TITLES=TITLES, quote_plus=quote_plus,
+def persona_of(request: Request) -> Optional[personas.Persona]:
+    """The persona this browser is acting as (cookie), or None for presenter mode."""
+    return personas.get(request.cookies.get(personas.COOKIE))
+
+
+def actor_label(request: Request, default: str) -> str:
+    p = persona_of(request)
+    return personas.label(p) if p else default
+
+
+templates.env.globals.update(persona_of=persona_of, PERSONAS=personas.PERSONAS,
+                             persona_label=personas.label, may_send=personas.may_send,
+                             may_record=personas.may_record, STATUS_WORDS=STATUS_WORDS, TITLES=TITLES, quote_plus=quote_plus,
                              page_url=page_url, LAYERS=presenter.LAYERS, PILOT=presenter.PILOT)
 
 CONCURRENT_WRITE = ("Not recorded: another write landed at the same moment, so nothing was saved. "
@@ -192,9 +204,10 @@ def queue(request: Request, owner: str = "all", site: str = "all", msg: Optional
 
 
 @app.post("/rerun")
-def rerun(back: str = Form("/")):
+def rerun(request: Request, back: str = Form("/")):
     with svc().lock:
-        states = svc().evaluate_all(actor="UI: re-run all through engine")
+        states = svc().evaluate_all(actor=f"UI: re-run all through engine "
+                                          f"({actor_label(request, 'presenter')})")
     back = back if back.startswith("/case/") else "/"
     return go(back, f"Re-evaluated all {len(states)} cases through one engine; audit entries written.")
 
@@ -256,6 +269,16 @@ def case(request: Request, key: str, msg: Optional[str] = None, form: Optional[s
 @app.post("/case/{key}/simulate")
 async def simulate(key: str, request: Request):
     form = dict((await request.form()).items())
+    p = persona_of(request)
+    if p:
+        # Server-side attribution: the persona decides who recorded this, never the form.
+        t = form.get("type", "")
+        if not personas.may_record(p, t):
+            allowed = ", ".join(personas.EVENT_ROLES.get(t, ())) or "nobody"
+            return go(f"/case/{key}", f"Not recorded: {p.role} can't record {t or 'this event'} "
+                                      f"(recorded by: {allowed}).", at="simulate")
+        form["actor_role"] = personas.EVENT_ACTOR_ROLE.get(t, p.role)
+        form["actor_name"] = p.name
     with svc().lock:
         return _simulate(key, form)
 
@@ -304,14 +327,29 @@ def _simulate(key: str, form: dict):
 
 
 @app.post("/case/{key}/handoff/{kind}")
-def handoff(key: str, kind: str):
+async def handoff(key: str, kind: str, request: Request):
     if kind not in handoffs.KINDS:
         raise HTTPException(404)
-    try:
-        with svc().lock:
-            r = handoffs.send(svc(), key, kind)
-    except sqlite3.IntegrityError:
-        return go(f"/case/{key}", CONCURRENT_WRITE, at="handoffs")
+    form = dict((await request.form()).items())
+    back = form.get("back", "")
+    back_url, at = (back, None) if back in ("/work",) else (f"/case/{key}", "handoffs")
+    p = persona_of(request)
+    label = handoffs.KINDS[kind][0]
+    with svc().lock:
+        try:
+            svc().store.case(key)
+        except KeyError:
+            raise HTTPException(404)
+        if not personas.may_send(p, kind):
+            allowed = ", ".join(personas.HANDOFF_ROLES.get(kind, ())) or "nobody"
+            reason = f"role {p.role} may not send {label} (sent by: {allowed})"
+            svc().store.audit(key, wall_clock(), personas.label(p), "handoff_blocked",
+                              {"kind": label, "failing_gates": [], "reason": reason})
+            return go(back_url, f"Not recorded: {reason}. Attempt recorded in the audit trail.", at=at)
+        try:
+            r = handoffs.send(svc(), key, kind, actor=actor_label(request, "UI user"))
+        except sqlite3.IntegrityError:
+            return go(back_url, CONCURRENT_WRITE, at=at)
     label = handoffs.KINDS[kind][0]
     msgs = {
         "sent": f"Sent {label}: {r.get('handoff_id')} recorded in outbox (MOCK STUB); "
@@ -323,7 +361,67 @@ def handoff(key: str, kind: str):
                    "Attempt recorded in the audit trail.",
         "not_applicable": f"Not applicable: {r.get('reason')}",
     }
-    return go(f"/case/{key}", msgs[r["result"]], at="handoffs")
+    msg = msgs[r["result"]]
+    return go(back_url, f"{key}: {msg}" if back_url == "/work" else msg, at=at)
+
+
+# ---------------------------------------------------------------- personas + my work
+
+@app.post("/persona")
+def choose_persona(persona: str = Form("")):
+    p = personas.get(persona)
+    r = RedirectResponse(p.landing if p else "/", status_code=303)
+    if p:
+        r.set_cookie(personas.COOKIE, p.key, httponly=True, samesite="lax")
+    else:
+        r.delete_cookie(personas.COOKIE)
+    return r
+
+
+def _anchor(code: str) -> str:
+    """Where on the case page the persona acts on this item."""
+    if code.startswith(("CLIN_", "ID_")) or code in ("PA_AWAITING", "PA_DENIED"):
+        return "simulate"
+    if code.startswith("COV_PENDING") or code in ("COV_CONFLICT", "PA_UNKNOWN"):
+        return "sim-benefits"
+    return "handoffs"
+
+
+def work_items(service: Service, p: personas.Persona) -> list[dict]:
+    """The persona's open items: one per (case, next action) they own, plus fact flags of the
+    kind they review. Sorted urgent → undetermined → expedited → routine, then oldest first."""
+    items = []
+    for s in service.states():
+        ef = service.case(s.patient_key)
+        base = {"s": s, "key": s.patient_key, "name": patient_name(ef),
+                "age": business_days(ef.received_at, service.policy.eval_date),
+                "rank": personas.PRIORITY_ORDER.get(s.priority.status, 9)}
+        mine = [a for a in s.actions if personas.owns(p, a)]
+        others = sorted({a.owner_role for a in s.actions if not personas.owns(p, a)})
+        for a in mine:
+            items.append({**base, "code": a.reason_code, "title": a.action, "detail": a.detail,
+                          "owner": a.owner_role, "others": others,
+                          "primary": personas.PRIMARY_HANDOFF.get(a.reason_code),
+                          "href": f"/case/{s.patient_key}#{_anchor(a.reason_code)}"})
+        if p.fact_flags:
+            for f in service.open_flags(s.patient_key):
+                if fr.is_clinical(f.field) == (p.fact_flags == "clinical"):
+                    items.append({**base, "code": f"FACT_{f.field}", "title": f"Check {f.field} on {f.doc_id}",
+                                  "detail": f.message, "owner": p.role, "others": others, "primary": None,
+                                  "href": page_url(ef.source_file, f.page, s.patient_key) + f"#fact-{f.doc_id}-{f.field}"})
+    return sorted(items, key=lambda i: (i["rank"], -i["age"], i["key"], i["code"]))
+
+
+@app.get("/work")
+def my_work(request: Request, msg: Optional[str] = None):
+    p = persona_of(request)
+    if p is None:
+        return go("/", "Choose who you are (top right) to see your own work list.")
+    service = svc()
+    run = service.engine_has_run()
+    items = work_items(service, p) if run and not p.read_only else []
+    return templates.TemplateResponse(request, "work.html", {
+        "p": p, "items": items, "msg": msg, "engine_run": run})
 
 
 # ---------------------------------------------------------------- pages, outbox, metrics
@@ -406,6 +504,9 @@ def review_rows(d, page: int, flags, open_, reviews) -> list[dict]:
 @app.post("/case/{key}/fact-review")
 async def fact_review(key: str, request: Request):
     form = dict((await request.form()).items())
+    p = persona_of(request)
+    if p:
+        form["actor_role"], form["actor_name"] = p.role, p.name
     back_file, back_page = form.get("back_file", ""), form.get("back_page", "")
     try:
         page = int(form.get("quote_page") or back_page or 0)

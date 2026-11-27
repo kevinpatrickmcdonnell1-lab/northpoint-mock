@@ -1,18 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ file }} p.{{ page }}<script>
-(function () {
-  var role = document.getElementById('rv-role'), name = document.getElementById('rv-name');
-  if (!role) return;
-  try { role.value = localStorage.getItem('rv-role') || role.value; name.value = localStorage.getItem('rv-name') || ''; } catch (e) {}
-  document.querySelectorAll('form[data-reviewer]').forEach(function (f) {
-    f.addEventListener('submit', function () {
-      f.actor_role.value = role.value; f.actor_name.value = name.value;
-      try { localStorage.setItem('rv-role', role.value); localStorage.setItem('rv-name', name.value); } catch (e) {}
-    });
-  });
-})();
-</script>
-{% endblock %}
+{% block title %}{{ file }} p.{{ page }}{% endblock %}
 {% block content %}
 <p class="crumbs">{% if key %}<a href="/case/{{ key }}">← back to {{ key }}</a>{% else %}<a href="/">← back to queue</a> <span class="small muted">(no extraction cites this page)</span>{% endif %}</p>
 <p class="eyebrow" style="margin-top:14px">Layer 1 · Document extraction · source page</p>
@@ -34,8 +21,13 @@
     <div class="card reviewer-bar" style="margin-bottom:14px">
       <h3>Reviewer</h3>
       <p class="small muted" style="margin:0 0 8px">Confirm a fact when the page says what it records; correct it when it doesn't. Every review is stored with your name, role and time, and audited.</p>
+      {% set me = persona_of(request) %}
+      {% if me %}<p class="small persona-note" style="margin:0">Reviewing as {{ persona_label(me) }}.{% if me.role not in review_roles %} This role doesn't review facts.{% endif %}</p>
+      <input type="hidden" id="rv-role" value="{{ me.role }}"><input type="hidden" id="rv-name" value="{{ me.name }}">
+      {% else %}
       <label class="small">Role <select id="rv-role">{% for r in review_roles %}<option>{{ r }}</option>{% endfor %}</select></label>
       <label class="small">Name <input id="rv-name" placeholder="your name"></label>
+      {% endif %}
     </div>
     <div class="card facts-here" style="margin-bottom:14px">
       <h3>Facts extracted from this page</h3>
@@ -84,11 +76,12 @@
 (function () {
   var role = document.getElementById('rv-role'), name = document.getElementById('rv-name');
   if (!role) return;
-  try { role.value = localStorage.getItem('rv-role') || role.value; name.value = localStorage.getItem('rv-name') || ''; } catch (e) {}
+  var picked = role.tagName === 'SELECT';   // presenter mode: remember the last reviewer
+  if (picked) { try { role.value = localStorage.getItem('rv-role') || role.value; name.value = localStorage.getItem('rv-name') || ''; } catch (e) {} }
   document.querySelectorAll('form[data-reviewer]').forEach(function (f) {
     f.addEventListener('submit', function () {
       f.actor_role.value = role.value; f.actor_name.value = name.value;
-      try { localStorage.setItem('rv-role', role.value); localStorage.setItem('rv-name', name.value); } catch (e) {}
+      if (picked) { try { localStorage.setItem('rv-role', role.value); localStorage.setItem('rv-name', name.value); } catch (e) {} }
     });
   });
 })();

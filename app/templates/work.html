@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% from "macros.html" import pri %}
+{% block title %}My work · {{ p.role }}{% endblock %}
+{% block content %}
+<section class="hero work-hero">
+  <div>
+    <p class="eyebrow">My work · {{ p.role }}</p>
+    <h1>{{ p.name }}</h1>
+    <p class="lede">{{ p.blurb }}</p>
+  </div>
+</section>
+
+{% if p.read_only %}
+  <div class="card"><p style="margin:0">This role is read-only, so it has no work list. Start from the <a href="{{ p.landing }}">{{ 'metrics' if p.landing == '/metrics' else 'queue' }}</a>.</p></div>
+{% elif not engine_run %}
+  <div class="card"><p style="margin:0">The engine has not run yet, so there is no work to route. Run all packets from the <a href="/">queue</a>.</p></div>
+{% else %}
+<p class="small muted">{{ items|length }} open item{{ 's' if items|length != 1 }} · urgent first, then unable-to-determine, expedited, routine; oldest first within each. Every action you take here is recorded as {{ persona_label(p) }}.</p>
+<div class="table-card table-wrap">
+<table class="queue work">
+  <thead><tr><th>Priority</th><th>Case</th><th>What to do</th><th>Why</th><th class="num">Age (bd)</th><th>Also held by</th><th></th></tr></thead>
+  <tbody>
+  {% for i in items %}
+  <tr data-work="{{ i.key }}:{{ i.code }}">
+    <td>{{ pri(i.s.priority.status, i.s.priority.detail.label) }}</td>
+    <td class="who"><a href="/case/{{ i.key }}"><strong>{{ i.key }}</strong><span class="nm">{{ i.name }}</span></a></td>
+    <td class="wrap"><b>{{ i.title }}</b><span class="sub mono small" style="display:block">{{ i.code }}</span></td>
+    <td class="wrap small">{{ i.detail or '' }}</td>
+    <td class="num">{{ i.age }}</td>
+    <td class="wrap">{% for o in i.others %}<span class="chip neutral" title="Read-only: owned by another role">Also held by {{ o }}</span>{% endfor %}</td>
+    <td class="work-go">
+      {% if i.primary and may_send(p, i.primary[0]) %}
+      <form method="post" action="/case/{{ i.key }}/handoff/{{ i.primary[0] }}"><input type="hidden" name="back" value="/work"><button class="btn-small green">{{ i.primary[1] }}</button></form>
+      {% endif %}
+      <a href="{{ i.href }}" class="small">Open →</a>
+    </td>
+  </tr>
+  {% else %}<tr><td colspan="7" class="muted">Nothing waiting on {{ p.role }}.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+{% endblock %}
