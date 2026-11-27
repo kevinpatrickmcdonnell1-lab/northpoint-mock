@@ -155,6 +155,8 @@ def case(request: Request, key: str, msg: Optional[str] = None, form: Optional[s
 async def simulate(key: str, request: Request):
     form = dict((await request.form()).items())
     t = form.get("type", "")
+    recalls_before = {o["handoff_id"] for o in svc().store.outbox(key)
+                      if o["work_item"]["type"] == handoffs.RECALL_TYPE}
     kw: dict = {"actor_role": form.get("actor_role", ""), "actor_name": form.get("actor_name"),
                 "note": form.get("note")}
     try:
@@ -184,8 +186,12 @@ async def simulate(key: str, request: Request):
     except (ValidationError, ValueError) as e:
         msg = e.errors()[0]["msg"] if isinstance(e, ValidationError) else str(e)
         return go(f"/case/{key}", f"Not recorded: {msg}")
+    new_recalls = [o["handoff_id"] for o in svc().store.outbox(key)
+                   if o["work_item"]["type"] == handoffs.RECALL_TYPE and o["handoff_id"] not in recalls_before]
+    recalled = (f" Case is no longer sendable: scheduling handoff recalled automatically "
+                f"({', '.join(new_recalls)}).") if new_recalls else ""
     return go(f"/case/{key}", f"SIMULATED event {ev.event_id} recorded ({ev.type} {ev.decision}); "
-                              "case re-evaluated and audited.")
+                              f"case re-evaluated and audited.{recalled}")
 
 
 @app.post("/case/{key}/handoff/{kind}")
