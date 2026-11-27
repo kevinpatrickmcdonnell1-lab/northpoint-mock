@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -13,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
-from app import handoffs, metrics
+from app import handoffs, metrics, presenter
 from app.engine import evaluate
 from app.metrics import business_days
 from app.pdfs import PAGES, TITLES
@@ -47,20 +48,75 @@ def page_url(file: str, page: int, case: Optional[str] = None, q: Optional[str] 
 
 
 templates.env.globals.update(STATUS_WORDS=STATUS_WORDS, TITLES=TITLES, quote_plus=quote_plus,
-                             page_url=page_url)
+                             page_url=page_url, LAYERS=presenter.LAYERS, PILOT=presenter.PILOT)
+
+CONCURRENT_WRITE = ("Not recorded: another write landed at the same moment, so nothing was saved. "
+                    "Press the button once more.")
 
 
 def svc() -> Service:
     if not hasattr(app.state, "svc"):
         app.state.svc = Service(DB_PATH)
-        app.state.svc.seed()
+        app.state.svc.seed(evaluate=False)   # a fresh DB starts as "packets arrived, engine not run"
     return app.state.svc
 
 
-def go(url: str, msg: Optional[str] = None) -> RedirectResponse:
-    if msg:
-        url += ("&" if "?" in url else "?") + "msg=" + quote_plus(msg)
+def go(url: str, msg: Optional[str] = None, at: Optional[str] = None) -> RedirectResponse:
+    """303 back to a page with a flash message; `at` names the section to scroll to."""
+    for k, v in (("msg", msg), ("at", at)):
+        if v:
+            url += ("&" if "?" in url else "?") + f"{k}=" + quote_plus(v)
     return RedirectResponse(url, status_code=303)
+
+
+def corpus_stats(service: Service) -> dict:
+    """Layer-1 numbers across every loaded packet (pages → typed documents → cited quotes)."""
+    efs = [service.store.case(k) for k in service.store.keys()]
+    return {
+        "packets": len(efs),
+        "pages": sum(len({p for d in ef.documents for p in d.pages}) for ef in efs),
+        "documents": sum(len(ef.documents) for ef in efs),
+        "quotes": sum(len(d.quotes) for ef in efs for d in ef.documents),
+        "corrections": sum(len(ef.corrections) for ef in efs),
+        "methods": sorted({ef.extraction_method for ef in efs}),
+    }
+
+
+def _short(v) -> str:
+    if isinstance(v, bool):
+        return "yes" if v else "no"
+    if isinstance(v, list):
+        return ", ".join(map(str, v)) or "none"
+    return str(v)
+
+
+def format_diff(diff: dict) -> list[dict]:
+    """Readable rows for an evaluation diff (what a simulated event changed)."""
+    labels = {"identity": "Identity", "coverage": "Coverage", "priority": "Priority", "plan": "Plan",
+              "pa_requirement": "PA requirement", "failing_gates": "Holds", "actions": "Next actions",
+              "pa_prep_ready": "PA prep ready", "scheduling_sendable": "Scheduling sendable",
+              "admin_ready": "Admin readiness"}
+    rows = []
+    for k, ch in diff.items():
+        if k in ("simulated_event_ids", "initial"):
+            continue
+        if k == "criteria":
+            for rule, to in (ch["to"] or {}).items():
+                frm = (ch["from"] or {}).get(rule)
+                if frm != to:
+                    rows.append({"label": rule, "from": frm, "to": to})
+            continue
+        rows.append({"label": labels.get(k, k), "from": _short(ch["from"]), "to": _short(ch["to"])})
+    return rows
+
+
+def last_change(service: Service, key: str) -> Optional[dict]:
+    for a in service.store.audit_rows(key, "evaluation"):
+        d = a["detail"].get("diff") or {}
+        if d and not d.get("initial"):
+            return {"at": a["at"], "actor": a["actor"], "rows": format_diff(d),
+                    "policy_version": a["detail"].get("policy_version")}
+    return None
 
 
 def patient_name(ef) -> str:
@@ -88,6 +144,7 @@ def row(s, service: Service) -> dict:
         "next": s.actions[0] if s.actions else None,
         "age": business_days(ef.received_at, service.policy.eval_date), "sent": sent,
         "site": ef.ordering_site or "(unknown)",
+        "pages": len({p for d in ef.documents for p in d.pages}), "docs": len(ef.documents),
     }
 
 
@@ -100,6 +157,18 @@ def queue(request: Request, owner: str = "all", site: str = "all", msg: Optional
     sites = sorted({r["site"] for r in rows})
     if site != "all":
         rows = [r for r in rows if r["site"] == site]
+    m = metrics.compute(service)
+    kpis = {"sendable": m["counts"].get("sendable to scheduling", 0),
+            "pa_ready": m["counts"].get("ready for PA prep / awaiting payer", 0),
+            "held": m["counts"].get("held", 0), "handed": m["counts"].get("handed to scheduling", 0),
+            "gate_leaks": m["gate_leaks"], "owners": len(m["owners"]),
+            "actions": sum(v for _, v in m["owners"]), "n": m["n"],
+            "holds": sum(len([g for g in r["s"].gates if not g.passed]) for r in rows),
+            "clinical": sum(1 for r in rows if any(a.reason_code.startswith("CLIN_") for a in r["s"].actions))}
+    corpus = corpus_stats(service)
+    tab_counts = {k: (sum(r["s"].scheduling_sendable for r in rows) if k == "ready" else
+                      sum(any(a.owner_role == role_ for a in r["s"].actions) for r in rows) if role_ else len(rows))
+                  for k, _, role_ in OWNER_TABS}
     role = dict((k, r) for k, _, r in OWNER_TABS).get(owner)
     if owner == "ready":
         rows = [r for r in rows if r["s"].scheduling_sendable]
@@ -107,32 +176,43 @@ def queue(request: Request, owner: str = "all", site: str = "all", msg: Optional
         rows = [r for r in rows if any(a.owner_role == role for a in r["s"].actions)]
     return templates.TemplateResponse(request, "queue.html", {
         "rows": rows, "owner": owner, "tabs": OWNER_TABS, "site": site, "sites": sites, "policy": service.policy, "msg": msg,
-        "workflow": service.workflow})
+        "workflow": service.workflow, "kpis": kpis, "corpus": corpus, "tab_counts": tab_counts,
+        "engine_run": service.engine_has_run(),
+        "arrivals": [{"key": k, "ef": service.store.case(k), "name": patient_name(service.store.case(k))}
+                     for k in service.store.keys()]})
 
 
 @app.post("/rerun")
-def rerun():
-    states = svc().evaluate_all(actor="UI: re-run all through engine")
-    return go("/", f"Re-evaluated all {len(states)} cases through one engine; audit entries written.")
+def rerun(back: str = Form("/")):
+    with svc().lock:
+        states = svc().evaluate_all(actor="UI: re-run all through engine")
+    back = back if back.startswith("/case/") else "/"
+    return go(back, f"Re-evaluated all {len(states)} cases through one engine; audit entries written.")
 
 
 @app.post("/reset")
 def reset():
-    service = svc()
-    service.store.close()
-    for p in (DB_PATH, Path(str(DB_PATH) + "-wal"), Path(str(DB_PATH) + "-shm")):
-        p.unlink(missing_ok=True)
-    for f in DEFAULT_OUTBOX.glob("*.json"):
-        f.unlink()
-    del app.state.svc
-    svc()
-    return go("/", "Demo reset: source facts reloaded, simulated events, audit and outbox cleared.")
+    """Back to the demo's starting point: the packets have arrived (extracted facts loaded),
+    nothing has been simulated, sent or audited, and the engine has not run yet."""
+    old = svc()
+    with old.lock:
+        old.store.close()
+        for p in (DB_PATH, Path(str(DB_PATH) + "-wal"), Path(str(DB_PATH) + "-shm")):
+            p.unlink(missing_ok=True)
+        for f in old.outbox_dir.glob("*.json"):
+            f.unlink()
+        new = Service(DB_PATH, outbox_dir=old.outbox_dir, extractions_dir=old.extractions_dir)
+        new.seed(evaluate=False)
+        app.state.svc = new
+    return go("/", "Demo reset: packets reloaded; simulated events, handoffs and audit cleared. "
+                   "The engine has not run yet.")
 
 
 # ---------------------------------------------------------------- case detail
 
 @app.get("/case/{key}")
-def case(request: Request, key: str, msg: Optional[str] = None, form: Optional[str] = None):
+def case(request: Request, key: str, msg: Optional[str] = None, form: Optional[str] = None,
+         at: Optional[str] = None):
     service = svc()
     try:
         ef = service.store.case(key)
@@ -141,6 +221,12 @@ def case(request: Request, key: str, msg: Optional[str] = None, form: Optional[s
     events = service.store.events(key)
     s = evaluate(ef, events, service.policy, service.workflow)
     docs = [{"d": d, "unused": why_unused(d, service.policy)} for d in ef.documents]
+    qmap: dict = {}
+    for d in ef.documents:
+        for qt in d.quotes:
+            qmap.setdefault(f"{d.doc_id}|{qt.field}", qt.text)
+    clin = [a for a in s.actions if a.reason_code.startswith("CLIN_")]
+    admin = [a for a in s.actions if not a.reason_code.startswith("CLIN_")]
     return templates.TemplateResponse(request, "case.html", {
         "s": s, "ef": ef, "name": patient_name(ef), "procedure": procedure(ef), "docs": docs,
         "events": events, "audit": service.store.audit_rows(key)[:60],
@@ -149,12 +235,22 @@ def case(request: Request, key: str, msg: Optional[str] = None, form: Optional[s
         "active_sched": handoffs.active_scheduling_handoff(service, key),
         "policy": service.policy, "products": [p.product for p in service.policy.plans.values()],
         "age": business_days(ef.received_at, service.policy.eval_date),
-        "config_sha256": service.config_sha256, "form": form})
+        "config_sha256": service.config_sha256, "form": form, "at": at, "qmap": qmap,
+        "pages_total": len({p for d in ef.documents for p in d.pages}),
+        "quotes_total": sum(len(d.quotes) for d in ef.documents),
+        "clin_actions": clin, "admin_actions": admin, "change": last_change(service, key),
+        "gate_map": {g.gate: g for g in s.gates},
+        "engine_run": service.engine_has_run()})
 
 
 @app.post("/case/{key}/simulate")
 async def simulate(key: str, request: Request):
     form = dict((await request.form()).items())
+    with svc().lock:
+        return _simulate(key, form)
+
+
+def _simulate(key: str, form: dict):
     t = form.get("type", "")
     recalls_before = {o["handoff_id"] for o in svc().store.outbox(key)
                       if o["work_item"]["type"] == handoffs.RECALL_TYPE}
@@ -175,7 +271,7 @@ async def simulate(key: str, request: Request):
             if rd is not None and rd > eval_date:
                 return go(f"/case/{key}?form=benefits", f"Not recorded: response date {rd} is after the "
                           f"evaluation date {eval_date}, so the engine would ignore it (A8). "
-                          f"Use a date on or before {eval_date}.")
+                          f"Use a date on or before {eval_date}.", at="sim-benefits")
             b = {"response_date": form.get("response_date"), "payer": form.get("payer") or None,
                  "plan_product_raw": form.get("plan_product_raw") or None,
                  "member_id": form.get("member_id") or None,
@@ -186,20 +282,26 @@ async def simulate(key: str, request: Request):
             ev = svc().simulate(key, t, form.get("decision", ""), **kw)
     except (ValidationError, ValueError) as e:
         msg = e.errors()[0]["msg"] if isinstance(e, ValidationError) else str(e)
-        return go(f"/case/{key}", f"Not recorded: {msg}")
+        return go(f"/case/{key}", f"Not recorded: {msg}", at="simulate")
+    except sqlite3.IntegrityError:
+        return go(f"/case/{key}", CONCURRENT_WRITE, at="simulate")
     new_recalls = [o["handoff_id"] for o in svc().store.outbox(key)
                    if o["work_item"]["type"] == handoffs.RECALL_TYPE and o["handoff_id"] not in recalls_before]
     recalled = (f" Case is no longer sendable: scheduling handoff recalled automatically "
                 f"({', '.join(new_recalls)}).") if new_recalls else ""
     return go(f"/case/{key}", f"SIMULATED event {ev.event_id} recorded ({ev.type} {ev.decision}); "
-                              f"case re-evaluated and audited.{recalled}")
+                              f"case re-evaluated and audited.{recalled}", at="changed")
 
 
 @app.post("/case/{key}/handoff/{kind}")
 def handoff(key: str, kind: str):
     if kind not in handoffs.KINDS:
         raise HTTPException(404)
-    r = handoffs.send(svc(), key, kind)
+    try:
+        with svc().lock:
+            r = handoffs.send(svc(), key, kind)
+    except sqlite3.IntegrityError:
+        return go(f"/case/{key}", CONCURRENT_WRITE, at="handoffs")
     label = handoffs.KINDS[kind][0]
     msgs = {
         "sent": f"Sent {label}: {r.get('handoff_id')} recorded in outbox (MOCK STUB); "
@@ -211,7 +313,7 @@ def handoff(key: str, kind: str):
                    "Attempt recorded in the audit trail.",
         "not_applicable": f"Not applicable: {r.get('reason')}",
     }
-    return go(f"/case/{key}", msgs[r["result"]])
+    return go(f"/case/{key}", msgs[r["result"]], at="handoffs")
 
 
 # ---------------------------------------------------------------- pages, outbox, metrics
@@ -244,8 +346,17 @@ def page_viewer(request: Request, file: str, page: int, q: Optional[str] = None,
             j = i + len(" ".join(q.split()))
             parts = (norm[:i], norm[i:j], norm[j:])
     key = case_for_page(svc(), file, page, case)
+    here = []
+    if key:
+        ef = svc().store.case(key)
+        for d in ef.documents:
+            if page in d.pages:
+                here.append({"d": d, "unused": why_unused(d, svc().policy),
+                             "quotes": [x for x in d.quotes if x.page == page]})
+    norm_q = " ".join(q.split()) if q else None
     return templates.TemplateResponse(request, "page.html", {
-        "file": file, "page": page, "q": q, "text": text, "parts": parts, "key": key, "field": field})
+        "file": file, "page": page, "q": q, "text": text, "parts": parts, "key": key, "field": field,
+        "here": here, "norm_q": norm_q})
 
 
 @app.get("/pages/{file}/{page}.png")
@@ -304,4 +415,7 @@ def outbox_item(handoff_id: str):
 
 @app.get("/metrics")
 def metrics_page(request: Request):
-    return templates.TemplateResponse(request, "metrics.html", {"m": metrics.compute(svc())})
+    service = svc()
+    return templates.TemplateResponse(request, "metrics.html", {
+        "m": metrics.compute(service), "corpus": corpus_stats(service),
+        "engine_run": service.engine_has_run()})

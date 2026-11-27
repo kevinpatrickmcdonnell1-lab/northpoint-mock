@@ -201,8 +201,32 @@ Aligns the mock with the interview brief's requirements R1–R10 (see `docs/requ
 - **Gaps closed while writing it:** R4, R9 and R10 had only indirect proof, so three direct tests were added: `test_r4_pa_packet_only_when_required_and_id_cov_evidence_pass` (each PA-prep condition blocks on its own), `test_r9_every_handoff_names_item_system_output_and_gates` (all five handoff kinds) and `test_r10_no_clinical_treatment_decisions`. They passed on first run because the behaviour already existed; they are proofs, not reproductions.
 - **Verified:** the trace test failed first (no doc), then passed. Every live-demo claim in the doc was run on the real set over HTTP (R07 label, R01 PA packet blocked on G-ID/G-COV/G-EVID, R05 "PA not required" and the PPO note, R02 blocked → early approval refused → packet → approval → sent, R10 inactive). 327 tests pass.
 - **Check items skipped:** "no PA decision without a PA submission" and "one active scheduling handoff" were already on the base branch with reproducing tests (seam-hardening Fixes 2 and 3), so they were not rebuilt.
+## 2026-11-27 · UI rework for the three-layer demo (branch `ui/tennr-demo`)
+
+- **What:** the UI was rebuilt around the demo's three layers (document extraction, policy engine, case state & audit), styled with the palette from tennr.com's published CSS custom properties. The licensed fonts are replaced by free stand-ins (Fraunces, Inter, JetBrains Mono, with system fallbacks for offline use). Still server-rendered, one CSS file and no new Python dependencies. The new pieces are:
+  - case pages split into three anchored layers, with a sticky status bar;
+  - document cards with page thumbnails and cited facts, plus an identifiers table grouped by value;
+  - a clinical lane and an admin lane, a gate pipeline, and a "what the last event changed" card;
+  - a page-viewer panel of the facts extracted from that page;
+  - KPI tiles and a three-layer strip on the queue, and metrics grouped by layer with the pilot plan;
+  - an optional "Value lens" (button or key V) that shows what changes, what Northpoint measures, the assumption and the discovery question for each layer.
+
+  Every UI wording the tests guard is unchanged.
+
+### 15. Double-clicking a write button could 500 (code bug)
+- **What:** event and handoff IDs are numbered from row counts, and sync routes run in a thread pool, so two simultaneous clicks could compute the same ID or idempotency key and hit a UNIQUE constraint (`sqlite3.IntegrityError` → HTTP 500). The demo script had this as a "don't do live" item.
+- **Found by:** the demo script's known-issues list; reproduced by firing 6 simultaneous "Notify triage" posts on one case with the lock removed (3 returned 500).
+- **Fix:** `Service.lock` (an `RLock`) serialises every write route (simulate, handoffs, re-run). An `IntegrityError` that still occurs is shown as a readable "Not recorded" message. The browser also drops a second submit while the first is in flight.
+- **Verified:** `tests/test_ui_layers.py::test_concurrent_clicks_record_one_handoff_and_never_500` (6 → all 200, one handoff) and `test_concurrent_simulate_events_get_unique_ids` (5 events, 5 unique IDs).
+
+### 16. Reset came back already evaluated (demo-flow fix)
+- **What:** Reset cleared events, handoffs and the audit trail, but re-seeding immediately ran the engine, so the queue was fully populated and the opening "Run all 10 through engine" click changed nothing on screen. Reset also rebuilt the service with the default dataset and outbox rather than the current ones.
+- **Found by:** Kevin, on the live app.
+- **Fix:** `Service.seed(evaluate=False)` loads the packets without evaluating. Reset, a fresh DB and `make seed` all start in the "packets arrived, engine not run" state. The queue lists the packets as "Awaiting engine", case pages show Layer 1 only, and metrics show extraction only. The run button (a real, audited evaluation) fills everything in. Reset keeps the current dataset and outbox directory.
+- **Verified:** `test_reset_leaves_packets_loaded_but_not_evaluated`, `test_case_before_run_shows_extraction_only` and `test_run_after_reset_populates_and_audits` failed first, then passed. 318 tests pass.
 
 ## Verification summary
+- **After the UI rework, rebased on brief alignment (2026-11-27):** `make test`: 336 tests; `make check`: 0 errors, 143 warnings. Both golden tables unchanged.
 - **After brief alignment (2026-11-27):** `make test`: 327 tests; `make check`: 0 errors, 143 warnings. Both golden tables unchanged.
 - **After seam hardening (2026-11-27):** `make test`: 309 tests (228 before the branch); `make check`: 0 errors, 143 warnings (judgment fields without their own quote, by design). Both golden tables unchanged.
 - `make test`: 228 tests, including the hand-derived real golden table (10 rows). Earlier counts: 194, then 217. Golden table, window boundaries, single-fact flips, invariants (gate leaks, no events from the engine, no derived keys, immutable sources via SQLite triggers, mutation tests on priority and unsigned docs, reason/evidence completeness, determinism, no patient-specific code), the four scripted transitions, an HTTP walkthrough of P01/P03/P04/P05/P08, and quote-on-page checks for all ten packets.

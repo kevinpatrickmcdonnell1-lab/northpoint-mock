@@ -1,179 +1,286 @@
 {% extends "base.html" %}
-{% from "macros.html" import pri, st, ref_link %}
+{% from "macros.html" import pri, st, yesno, ref_link, lens, layer_head %}
 {% block title %}{{ s.patient_key }} {{ name }}{% endblock %}
 {% block content %}
-<h1>{{ s.patient_key }} · {{ name }} <span class="muted">{{ ef.packet_id }} · {{ procedure }} · received {{ ef.received_at }} via {{ ef.received_channel|replace('_',' ') }} · site {{ ef.ordering_site or 'unknown' }} · age {{ age }} bd</span></h1>
+{% set failing = s.gates|rejectattr('passed')|map(attribute='gate')|list %}
 
-<section class="cards">
-  <div class="card">
-    <h3>Clinical priority</h3>
-    <p>{{ pri(s.priority.status, s.priority.detail.label) }}</p>
-    <p class="small">{{ s.priority.reason_text }}</p>
-    <p class="small">Source: {% for r in s.priority.evidence_refs %}{{ ref_link(r, s.patient_key) }} {% else %}none{% endfor %}</p>
-    <p class="small muted">Independent of payer, coverage, PA and identity.</p>
+<section class="case-head">
+  <div class="crumbs"><a href="/">Queue</a> / {{ s.patient_key }}</div>
+  <h1>{{ name }} <span class="key">{{ s.patient_key }} · {{ ef.packet_id }}</span></h1>
+  <p class="meta">{{ procedure }} · received {{ ef.received_at }} via {{ ef.received_channel|replace('_',' ') }} · site {{ ef.ordering_site or 'not stated' }} · age {{ age }} business days{% if engine_run %} · {{ s.plan.detail.product or 'plan unresolved' }}{% endif %}</p>
+  {% if engine_run %}
+  <div class="statusbar">
+    <div class="it"><span>Clinical priority</span>{{ pri(s.priority.status, s.priority.detail.label) }}</div>
+    <div class="sep"></div>
+    <div class="it"><span>Identity</span>{{ st(s.identity.status) }}</div>
+    <div class="it"><span>Coverage</span>{{ st(s.coverage.status) }}</div>
+    <div class="it"><span>PA requirement</span>{{ st(s.pa_requirement) }}</div>
+    <div class="it"><span>Evidence</span>{{ st(s.criteria.EVIDENCE.status) }}</div>
+    <div class="sep"></div>
+    <div class="it"><span>PA prep ready</span>{{ yesno(s.pa_prep_ready) }}</div>
+    <div class="it"><span>Scheduling sendable</span>{{ yesno(s.scheduling_sendable) }}</div>
+    <div class="it"><span>Admin readiness</span>{{ yesno(s.admin_ready, 'reached', 'not reached') }}</div>
   </div>
-  <div class="card">
-    <h3>Identity (ID-1)</h3>
-    <p>{{ st(s.identity.status) }}</p>
-    <p class="small">{{ s.identity.reason_text }}</p>
-    {% for x in s.identity.detail.confirmed_not_in_packet %}
-      <div class="flash flash-bad small id-warning">⚠ Confirmed {{ x.field }} <b class="mono">{{ x.value }}</b> (Epic ref {{ x.epic_reference }}, <span class="sim-badge">SIMULATED</span> {{ x.event_id }}) is not found in packet: it matches no value on any page. Accepted because Epic is the authority; check it was keyed correctly.</div>
-    {% endfor %}
-    {% for f, e in s.identity.detail.fields.items() if e.status in ('conflicting', 'resolved') %}
-      <div class="conflict">
-        <b>{{ f }}</b> — {{ e.status }}{% if e.status == 'resolved' %}: <b>{{ e.confirmed }}</b> confirmed in Epic ({{ e.epic_reference }}) <span class="sim-badge">SIMULATED – not from PDF</span>{% endif %}
-        <ul>{% for v in e['values'] %}<li><span class="mono">{{ v.value }}</span> · {{ TITLES[v.doc_type] }} · <a class="ref" href="{{ page_url(v.file, v.page, s.patient_key) }}">{{ v.file }} p.{{ v.page }}</a></li>{% endfor %}</ul>
-        {% if e.status == 'conflicting' %}<p class="small muted">Never auto-selected. Verify in Epic.</p>{% endif %}
-      </div>
-    {% endfor %}
-  </div>
-  <div class="card">
-    <h3>Coverage (COV-1)</h3>
-    <p>{{ st(s.coverage.status) }} {% if s.coverage.reason_code %}<code>{{ s.coverage.reason_code }}</code>{% endif %}</p>
-    <p class="small">{{ s.coverage.reason_text }}</p>
-    <p class="small">{% for r in s.coverage.evidence_refs %}{{ ref_link(r, s.patient_key) }} {% endfor %}</p>
-  </div>
-  <div class="card">
-    <h3>PA requirement</h3>
-    <p>{{ st(s.pa_requirement) }}</p>
-    <p class="small">{{ s.plan.reason_text }}</p>
-    {% if s.plan.status == 'unknown' %}<p class="small muted">Product is never inferred from a member-ID prefix.</p>{% endif %}
-  </div>
-</section>
-
-<section>
-  <h2>Criteria</h2>
-  <p class="small muted">"Not met" is not a denial. "Supported" is not an approval.{% if s.pa_requirement == 'not_required' %} No-PA plan: the PA step is skipped; identity, coverage, evidence and clinical checks still apply.{% endif %}</p>
-  <table>
-    <thead><tr><th>Rule</th><th>Status</th><th>Reason</th><th>Evidence</th></tr></thead>
-    <tbody>
-    {% for k, r in s.criteria.items() %}
-      <tr class="{% if k == 'EVIDENCE' %}total{% endif %}">
-        <td><b>{{ k }}</b></td>
-        <td>{{ st(r.status) }}{% if r.detail.branches %}<div class="small muted">A: {{ r.detail.branches.A }} · B: {{ r.detail.branches.B }}</div>{% endif %}</td>
-        <td class="small">{{ r.reason_text }}{% if r.reason_code %} <code>{{ r.reason_code }}</code>{% endif %}</td>
-        <td class="small">{% if k != 'EVIDENCE' %}{% for e in r.evidence_refs %}{{ ref_link(e, s.patient_key) }}<br>{% endfor %}{% endif %}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</section>
-
-<section class="two">
-  <div>
-    <h2>Gates</h2>
-    <table>
-      {% for g in s.gates %}
-      <tr><td><b>{{ g.gate }}</b></td><td>{% if g.passed %}<span class="st st-pass">pass</span>{% else %}<span class="st st-blocked">blocked</span>{% endif %}</td>
-        <td class="small">{{ g.basis }}{% if 'SIMULATED' in g.basis %} <span class="sim-badge">SIMULATED – not from PDF</span>{% endif %}</td>
-        <td class="small muted">blocks {{ g.blocks|join(', ')|replace('_',' ') }}</td></tr>
-      {% endfor %}
-    </table>
-    <p class="small">PA prep ready: <b>{{ 'yes' if s.pa_prep_ready else 'no' }}</b> · Scheduling handoff sendable: <b>{{ 'yes' if s.scheduling_sendable else 'no' }}</b> · Admin readiness: <b>{{ 'reached' if s.admin_ready else 'not reached' }}</b></p>
-  </div>
-  <div>
-    <h2>Next actions</h2>
-    <ol class="actions">
-      {% for a in s.actions %}
-      <li><b>{{ a.action }}</b> → {{ a.owner_role }} <span class="tag">{{ a.tennr_product }}</span> <code>{{ a.reason_code }}</code>
-        {% if a.detail and a.detail != s.priority.reason_text %}<div class="small muted">{{ a.detail }}</div>{% endif %}</li>
-      {% endfor %}
-    </ol>
-    <h2>Handoffs</h2>
-    {% if active_sched %}<p class="small">Active scheduling handoff: <a href="/outbox/{{ active_sched.handoff_id }}">{{ active_sched.handoff_id }}</a></p>{% endif %}
-    {% for r in recalls %}
-    <div class="flash flash-bad small"><b>RECALLED</b> {{ r.work_item.original_handoff_id }} by <a href="/outbox/{{ r.handoff_id }}">{{ r.handoff_id }}</a> (automatic, sent to {{ r.receiving_system }}): failing gates {{ r.work_item.failing_gates|join(', ') }} · reasons {{ r.work_item.reason_codes|join(', ') }}</div>
-    {% endfor %}
-    <div class="buttons wrap">
-      <form method="post" action="/case/{{ s.patient_key }}/handoff/schedule"><button>Send to scheduling</button></form>
-      <form method="post" action="/case/{{ s.patient_key }}/handoff/pa_packet"><button class="secondary">Prepare PA packet</button></form>
-      <form method="post" action="/case/{{ s.patient_key }}/handoff/missing_info"><button class="secondary">Send missing-info request</button></form>
-      <form method="post" action="/case/{{ s.patient_key }}/handoff/triage"><button class="secondary">Notify triage</button></form>
-      <form method="post" action="/case/{{ s.patient_key }}/handoff/identity_task"><button class="secondary">Identity verification task</button></form>
-    </div>
-    {% if outbox %}<ul class="small">{% for o in outbox %}<li><a href="/outbox/{{ o.handoff_id }}">{{ o.handoff_id }}</a> · {{ o.work_item.type }} → {{ o.receiving_system }}</li>{% endfor %}</ul>{% endif %}
-  </div>
-</section>
-
-<section class="simulate">
-  <h2>Simulate… <span class="sim-badge">SIMULATED – not from source PDFs</span></h2>
-  <p class="small">These controls create labelled simulated events (separate, append-only table). They never change PDF evidence, and the engine never creates them.</p>
-  <div class="simgrid">
-    <form method="post" action="/case/{{ s.patient_key }}/simulate">
-      <input type="hidden" name="type" value="PAYER_PA_DECISION"><h4>Payer PA decision</h4>
-      <label>Decision <select name="decision"><option>approved</option><option>pended</option><option>denied</option></select></label>
-      <label>Recorded by <select name="actor_role">{% for r in roles.PAYER_PA_DECISION %}<option>{{ r }}</option>{% endfor %}</select></label>
-      <label>Note <input name="note" placeholder="mock payer reference"></label>
-      <button>Simulate payer decision</button>
-    </form>
-    <form method="post" action="/case/{{ s.patient_key }}/simulate">
-      <input type="hidden" name="type" value="CLINICAL_REVIEW_DECISION"><h4>Clinical review decision</h4>
-      <label>Decision <select name="decision"><option>cleared_for_scheduling</option><option>reviewed_hold</option><option>not_cleared</option></select></label>
-      <label>Role <select name="actor_role">{% for r in roles.CLINICAL_REVIEW_DECISION %}<option>{{ r }}</option>{% endfor %}</select></label>
-      <label>Name <input name="actor_name"></label>
-      <label>Note <input name="note"></label>
-      <button>Simulate clinical decision</button>
-    </form>
-    <form method="post" action="/case/{{ s.patient_key }}/simulate">
-      <input type="hidden" name="type" value="IDENTITY_RESOLUTION"><h4>Identity resolution (Epic)</h4>
-      <input type="hidden" name="actor_role" value="Intake Coordinator">
-      <label>Confirmed DOB <input name="confirmed_dob" placeholder="YYYY-MM-DD"></label>
-      <label>Confirmed member ID <input name="confirmed_member_id"></label>
-      <label>Confirmed name <input name="confirmed_name"></label>
-      <label>Epic reference* <input name="epic_reference" placeholder="EPIC-REG-…"></label>
-      <label>Note* <input name="note"></label>
-      <button>Simulate identity resolution</button>
-    </form>
-    <form method="post" action="/case/{{ s.patient_key }}/simulate">
-      <input type="hidden" name="type" value="BENEFITS_RESPONSE"><h4>New E&amp;B response</h4>
-      <input type="hidden" name="actor_role" value="Insurance Benefits Manager (mock)">
-      {% if form == 'benefits' and msg %}<p class="flash flash-bad small form-error">{{ msg }}</p>{% endif %}
-      <label>Response date <input name="response_date" value="{{ policy.eval_date }}" placeholder="YYYY-MM-DD, on or before {{ policy.eval_date }}"></label>
-      <label>Payer <input name="payer"></label>
-      <label>Plan product <input name="plan_product_raw" list="products"></label>
-      <datalist id="products">{% for p in products %}<option value="{{ p }}">{% endfor %}</datalist>
-      <label>Member ID <input name="member_id"></label>
-      <label>Active on {{ policy.eval_date }} <select name="active"><option value="true">true</option><option value="false">false</option><option value="">not stated</option></select></label>
-      <label>Product end date <input name="product_end_date" placeholder="optional"></label>
-      <button>Simulate E&amp;B response</button>
-    </form>
-  </div>
-  {% if events %}
-  <h4>Simulated events on this case</h4>
-  <table class="small">{% for e in events %}<tr><td><span class="sim-badge">SIMULATED</span> {{ e.event_id }}</td><td>{{ e.type }}</td><td>{{ e.decision }}{% if e.pa_handoff_id %} · answers {{ e.pa_handoff_id }}{% endif %}</td><td>{{ e.actor_role }}{% if e.actor_name %} ({{ e.actor_name }}){% endif %}</td><td>sim time {{ e.event_time }}</td><td>recorded {{ e.recorded_at }}</td><td>{{ e.note or '' }}</td></tr>{% endfor %}</table>
+  <nav class="layer-nav">
+    <a href="#layer-1"><span class="n">01</span><b>Extraction</b><span class="s">{{ pages_total }} pages → {{ ef.documents|length }} documents</span></a>
+    <a href="#layer-2"><span class="n">02</span><b>Policy engine</b><span class="s">{{ failing|length }} open gate{{ '' if failing|length == 1 else 's' }}</span></a>
+    <a href="#layer-3"><span class="n">03</span><b>Case state &amp; audit</b><span class="s">{{ s.actions|length }} next action{{ '' if s.actions|length == 1 else 's' }} · {{ events|length }} events</span></a>
+  </nav>
   {% endif %}
 </section>
 
-<section>
-  <h2>Documents</h2>
-  <table>
-    <thead><tr><th>Type</th><th>Date</th><th>Signed</th><th>Pages</th><th>Use</th></tr></thead>
-    {% for x in docs %}{% set d = x.d %}
-    <tr class="{% if x.unused %}unused{% endif %}">
-      <td>{{ TITLES[d.doc_type] }}</td><td>{{ d.date or '' }}</td>
-      <td>{% if d.doc_type in ('registration_face_sheet','insurance_card','benefits_response') %}n/a (admin){% elif d.signed %}{{ d.signer }}{% else %}<b>unsigned</b>{% endif %}</td>
-      <td>{% for p in d.pages %}<a class="ref" href="{{ page_url(ef.source_file, p, s.patient_key) }}">p.{{ p }}</a> {% endfor %}</td>
-      <td>{% if x.unused %}<span class="chip">{{ x.unused }}</span>{% else %}used by rules{% endif %}</td>
+{# =============================================================== LAYER 1 #}
+<section class="layer" id="layer-1">
+  {% set stats1 %}<b>{{ pages_total }}</b> pages → <b>{{ ef.documents|length }}</b> documents<br>{{ quotes_total }} cited quotes · {{ ef.corrections|length }} corrections{% endset %}
+  {{ layer_head(1, stats1) }}
+  {{ lens(1) }}
+
+  <div class="docs">
+  {% for x in docs %}{% set d = x.d %}
+    <article class="doc {% if x.unused %}unused{% endif %}">
+      <a class="thumb" href="{{ page_url(ef.source_file, d.pages[0], s.patient_key) }}" title="Open p.{{ d.pages[0] }}"><img src="/pages/{{ ef.source_file }}/{{ d.pages[0] }}.png" alt="{{ TITLES[d.doc_type] }}, page {{ d.pages[0] }}" loading="lazy"></a>
+      <div class="body">
+        <div class="title">{{ TITLES[d.doc_type] }}</div>
+        <div class="sub">{{ d.date or 'undated' }} ·
+          {% if d.doc_type in ('registration_face_sheet','insurance_card','benefits_response') %}n/a (admin){% elif d.signed %}{{ d.signer }}{% else %}<b>unsigned</b>{% endif %}
+          · {% for p in d.pages %}<a class="ref" href="{{ page_url(ef.source_file, p, s.patient_key) }}">p.{{ p }}</a> {% endfor %}</div>
+        {% if x.unused %}<span class="chip neutral">{{ x.unused }}</span>{% else %}<span class="chip ok">used by rules</span>{% endif %}
+        {% if d.quotes %}<ul class="facts">
+          {% for q in d.quotes[:5] %}<li><span class="f">{{ q.field }}</span><a href="{{ page_url(ef.source_file, q.page, s.patient_key, q.text) }}" title="{{ q.text }}">“{{ q.text }}”</a></li>{% endfor %}
+          {% if d.quotes|length > 5 %}<li class="muted">+{{ d.quotes|length - 5 }} more</li>{% endif %}
+        </ul>{% endif %}
+      </div>
+    </article>
+  {% endfor %}
+  </div>
+
+  <h3 class="section-title">Identifiers as each page states them</h3>
+  <div class="table-card">
+  <table class="ids">
+    <thead><tr><th>Identifier</th><th>Values found (document · page)</th><th>Pages agree?</th></tr></thead>
+    {% for f, e in s.identity.detail.fields.items() if e['values'] %}
+    <tr>
+      <td><b>{{ {'name':'Name','dob':'Date of birth','mrn':'MRN','packet_id':'Packet / referral ID','member_id':'Member ID'}[f] }}</b></td>
+      <td><div class="vals">{% for val, group in e['values']|groupby('value') %}<span class="idval {% if e.status in ('conflicting','resolved') %}diff{% endif %}"><span class="mono"><b>{{ val }}</b></span>{% for v in group %}{% if loop.first or v.page != loop.previtem.page %}<a class="ref" href="{{ page_url(v.file, v.page, s.patient_key, qmap.get(v.doc_id ~ '|' ~ f), f) }}" title="{{ TITLES[v.doc_type] }}">p.{{ v.page }}</a>{% endif %}{% endfor %}<span class="muted">{{ group|length }} doc{{ 's' if group|length != 1 }}</span></span>{% endfor %}</div></td>
+      <td>{% if e.status == 'consistent' %}<span class="st st-yes">agree</span>{% else %}<span class="st st-no">disagree</span>{% endif %}</td>
     </tr>
     {% endfor %}
   </table>
+  </div>
+  <p class="disclose">Extraction records what each page says. It never writes a conclusion like "verified"; the schema rejects derived fields. Method: <code>{{ ef.extraction_method }}</code>, {{ ef.corrections|length }} manual corrections logged. Page references point into the original file <code>{{ ef.source_file }}</code>.</p>
 </section>
 
-<section>
-  <h2>Audit trail <span class="muted small">newest first</span></h2>
-  <table class="small audit">
-    {% for a in audit %}
-    <tr><td class="mono">{{ a.at }}</td><td>{{ a.kind }}</td><td>{{ a.actor }}</td>
-      <td>{% set d = a.detail %}
-        {% if a.kind == 'evaluation' %}{{ d.policy_version }} @ {{ d.eval_date }} · holds {{ d.failing_gates|join(', ') or 'none' }} · actions {{ d.actions|join(', ') }} · next owner: {{ d.next_owner or 'none' }}{% if d.diff and not d.diff.initial %} · <b>changed:</b> {{ d.diff.keys()|join(', ') }}{% endif %}
-        {% elif a.kind == 'handoff_blocked' %}<b>blocked</b> {{ d.kind }}: {{ d.failing_gates|join(', ') }}
-        {% elif a.kind == 'sim_event' %}<span class="sim-badge">SIMULATED</span> {{ d.event_id }} {{ d.type }} {{ d.decision }}
-        {% elif a.kind == 'handoff_sent' and d.kind == 'scheduling_recall' %}<b>RECALL</b> {{ d.handoff_id }} recalls {{ d.original_handoff_id }}: {{ d.failing_gates|join(', ') }}
-        {% elif a.kind == 'state_change' %}{{ d.diff.keys()|join(', ') }}
-        {% else %}{{ d.kind }} {{ d.handoff_id or '' }}{% endif %}
-      </td></tr>
-    {% endfor %}
-  </table>
+{% if not engine_run %}
+<section class="layer" id="layer-2">
+  <div class="card" style="text-align:center;padding:36px 20px">
+    <p class="eyebrow">Layers 2 &amp; 3</p>
+    <h2 class="display" style="font-size:28px;margin-bottom:8px">Not yet run through the engine</h2>
+    <p class="muted" style="max-width:560px;margin:0 auto 16px">These facts are all that exists so far. Priority, plan, coverage, criteria, gates, owners and next actions appear when the packets run through the policy engine.</p>
+    <form method="post" action="/rerun"><input type="hidden" name="back" value="/case/{{ s.patient_key }}"><button class="green">Run all through engine</button></form>
+  </div>
 </section>
-<footer class="small muted">Evaluated under {{ policy.policy_version }} as of {{ policy.eval_date }} · config SHA-256 (policy + workflow YAML) <span class="mono">{{ config_sha256 }}</span></footer>
+{% else %}
+{# =============================================================== LAYER 2 #}
+<section class="layer" id="layer-2">
+  {% set stats2 %}<b>{{ failing|length }}</b> of 6 gates open<br>{{ s.policy_version }} · as of {{ s.eval_date }}{% endset %}
+  {{ layer_head(2, stats2) }}
+  {{ lens(2) }}
+
+  <div class="grid g3">
+    <div class="card">
+      <h3>Plan &amp; PA requirement</h3>
+      <p>{{ st(s.pa_requirement) }} {% if s.plan.detail.plan_id %}<code>{{ s.plan.detail.plan_id }}</code>{% endif %}{% for x in s.plan.detail.extra or [] %} <span class="tag">+ {{ x }}</span>{% endfor %}</p>
+      <ul class="small" style="padding-left:16px;margin:8px 0">{% for v in s.plan.detail['values'] %}<li>“{{ v.raw or '(blank)' }}” <span class="muted">· {{ TITLES.get(v.doc_type, v.doc_type) }}</span> → {% if v.plan_id %}<code>{{ v.plan_id }}</code>{% else %}<span class="st st-unknown">no exact match</span>{% endif %}</li>{% endfor %}</ul>
+      <p class="small">{{ s.plan.reason_text }}</p>
+      {% if s.plan.status == 'unknown' %}<p class="small muted">Product is never inferred from a member-ID prefix.</p>{% endif %}
+    </div>
+    <div class="card">
+      <h3>Identity (ID-1)</h3>
+      <p>{{ st(s.identity.status) }}</p>
+      <p class="small">{{ s.identity.reason_text }}</p>
+      {% for f, e in s.identity.detail.fields.items() if e.status in ('conflicting', 'resolved') %}
+        <div class="conflict">
+          <b>{{ f }}</b> — {{ e.status }}{% if e.status == 'resolved' %}: <b>{{ e.confirmed }}</b> confirmed in Epic ({{ e.epic_reference }}) <span class="sim-badge">SIMULATED – not from PDF</span>{% endif %}
+          <ul>{% for val, group in e['values']|groupby('value') %}<li><span class="mono"><b>{{ val }}</b></span> · {% for v in group %}{% if loop.first or v.page != loop.previtem.page %}<a class="ref" href="{{ page_url(v.file, v.page, s.patient_key, qmap.get(v.doc_id ~ '|' ~ f), f) }}" title="{{ TITLES[v.doc_type] }}">p.{{ v.page }}</a>{% if not loop.last %}, {% endif %}{% endif %}{% endfor %} <span class="muted">({{ group|map(attribute='doc_type')|map('replace','_',' ')|unique|join(', ') }})</span></li>{% endfor %}</ul>
+          {% if e.status == 'conflicting' %}<p class="small muted">Never auto-selected. Verify in Epic.</p>{% endif %}
+        </div>
+      {% endfor %}
+      {% for x in s.identity.detail.confirmed_not_in_packet %}
+        <div class="recall id-warning">⚠ Confirmed {{ x.field }} <b class="mono">{{ x.value }}</b> (Epic ref {{ x.epic_reference }}, <span class="sim-badge">SIMULATED</span> {{ x.event_id }}) is not found in packet: it matches no value on any page. Accepted because Epic is the authority; check it was keyed correctly.</div>
+      {% endfor %}
+    </div>
+    <div class="card">
+      <h3>Coverage (COV-1)</h3>
+      <p>{{ st(s.coverage.status) }} {% if s.coverage.reason_code %}<code>{{ s.coverage.reason_code }}</code>{% endif %}</p>
+      <p class="small">{{ s.coverage.reason_text }}</p>
+      <p class="small">{% for r in s.coverage.evidence_refs %}{{ ref_link(r, s.patient_key) }} {% endfor %}</p>
+      <p class="small muted">Only a dated benefits response for the exact product, inside the 30-day window, can verify coverage. A card or face sheet cannot.</p>
+    </div>
+  </div>
+
+  <div class="lanes">
+    <div class="card lane clin">
+      <div class="lane-title"><span class="dot" style="background:var(--terra)"></span><h3 style="margin:0">Clinical lane</h3></div>
+      <div class="pri-big">{{ pri(s.priority.status, s.priority.detail.label) }}</div>
+      <p class="small">{{ s.priority.reason_text }}</p>
+      <p class="small">Source: {% for r in s.priority.evidence_refs %}{{ ref_link(r, s.patient_key) }} {% else %}none{% endfor %}</p>
+      <div class="routes">{% if clin_actions %}Routes to <b>{{ clin_actions|map(attribute='owner_role')|unique|join(', ') }}</b> now, whatever the admin gates say.{% else %}No clinical escalation for this case.{% endif %}
+        <div class="muted small" style="margin-top:4px">G-CLIN: {{ gate_map['G-CLIN'].basis }}</div></div>
+      <p class="small muted">Independent of payer, coverage, PA and identity.</p>
+    </div>
+    <div class="card lane admin">
+      <div class="lane-title"><span class="dot" style="background:var(--oasis)"></span><h3 style="margin:0">Admin lane · criteria</h3></div>
+      <table class="crit">
+        <thead><tr><th>Rule</th><th>Status</th><th>Reason</th><th>Evidence</th></tr></thead>
+        <tbody>
+        {% for k, r in s.criteria.items() %}
+          <tr class="{% if k == 'EVIDENCE' %}total{% endif %}">
+            <td>{{ k }}</td>
+            <td>{{ st(r.status) }}{% if r.detail.branches %}<div class="small muted">A: {{ r.detail.branches.A }} · B: {{ r.detail.branches.B }}</div>{% endif %}</td>
+            <td class="reason">{{ r.reason_text }}{% if r.reason_code %} <code>{{ r.reason_code }}</code>{% endif %}</td>
+            <td>{% if k != 'EVIDENCE' %}{% for e in r.evidence_refs %}{{ ref_link(e, s.patient_key) }}<br>{% endfor %}{% endif %}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <p class="rule-note">"Not met" is not a denial. "Supported" is not an approval.{% if s.pa_requirement == 'not_required' %} No-PA plan: the PA step is skipped; identity, coverage, evidence and clinical checks still apply.{% endif %}</p>
+    </div>
+  </div>
+
+  <div class="card gates">
+    <h3>Gates · every hold shown at once</h3>
+    <div class="pipeline"><span class="label">PA prep needs</span>
+      {% for n in ['G-ID','G-COV','G-PAREQ','G-EVID'] %}{% set g = gate_map[n] %}<span class="gate {{ 'pass' if g.passed else 'blocked' }}" title="{{ g.basis }}">{{ '✓' if g.passed else '✕' }} {{ n }}</span>{% if not loop.last %}<span class="arrow">·</span>{% endif %}{% endfor %}
+      <span class="arrow">→</span>{% if s.pa_requirement == 'not_required' %}<span class="result no">no PA on this plan</span>{% else %}<span class="result {{ 'yes' if s.pa_prep_ready else 'no' }}">PA prep {{ 'ready' if s.pa_prep_ready else 'held' }}</span>{% endif %}
+    </div>
+    <div class="pipeline"><span class="label">Scheduling needs all six</span>
+      {% for g in s.gates %}<span class="gate {{ 'pass' if g.passed else 'blocked' }}" title="{{ g.basis }}">{{ '✓' if g.passed else '✕' }} {{ g.gate }}</span>{% if not loop.last %}<span class="arrow">·</span>{% endif %}{% endfor %}
+      <span class="arrow">→</span><span class="result {{ 'yes' if s.scheduling_sendable else 'no' }}">{{ 'sendable' if s.scheduling_sendable else 'held' }}</span>
+    </div>
+    <details><summary class="small muted">Why each gate passes or blocks</summary>
+      <table class="gate-table">
+        {% for g in s.gates %}
+        <tr><td class="mono">{{ g.gate }}</td><td>{% if g.passed %}<span class="st st-pass">pass</span>{% else %}<span class="st st-blocked">blocked</span>{% endif %}</td>
+          <td>{{ g.basis }}{% if 'SIMULATED' in g.basis %} <span class="sim-badge">SIMULATED – not from PDF</span>{% endif %}</td>
+          <td class="muted small">blocks {{ g.blocks|join(', ')|replace('_',' ') }}</td></tr>
+        {% endfor %}
+      </table>
+    </details>
+  </div>
+</section>
+
+{# =============================================================== LAYER 3 #}
+<section class="layer" id="layer-3">
+  {% set stats3 %}<b>{{ s.actions|length }}</b> next actions<br>{{ events|length }} simulated events · {{ outbox|length }} handoffs{% endset %}
+  {{ layer_head(3, stats3) }}
+  {{ lens(3) }}
+
+  <div class="card changed" id="changed">
+    {% if change %}
+      <h3>What the last event changed</h3>
+      <p class="small muted">{{ change.actor }} · {{ change.at }} · re-evaluated under {{ change.policy_version }}. Source facts untouched; state recomputed from facts + events.</p>
+      <table>{% for r in change.rows %}<tr><td style="width:180px"><b>{{ r.label }}</b></td><td><span class="from">{{ r['from'] }}</span> → <span class="to">{{ r.to }}</span></td></tr>{% endfor %}</table>
+    {% else %}
+      <h3>Baseline state</h3>
+      <p class="small">No simulated events yet: this is exactly what the packet and the policy produce on their own. Every human decision below is added as a labelled event, never an edit.</p>
+    {% endif %}
+  </div>
+
+  <div class="grid g2" style="margin-top:14px">
+    <div class="card">
+      <h3>Next actions · one owner each</h3>
+      <ol class="actions">
+        {% for a in s.actions %}
+        <li><span class="idx">{{ loop.index }}</span><span class="act">{{ a.action }}</span>
+          <span class="meta"><span class="lane-tag {{ 'clin' if a.reason_code.startswith('CLIN_') else 'admin' }}">{{ 'clinical' if a.reason_code.startswith('CLIN_') else 'admin' }}</span> → <span class="owner-b">{{ a.owner_role }}</span> <span class="tag">{{ a.tennr_product }}</span> <code>{{ a.reason_code }}</code></span>
+          {% if a.detail and a.detail != s.priority.reason_text %}<span class="why">{{ a.detail }}</span>{% endif %}</li>
+        {% else %}<li class="muted">No open actions.</li>{% endfor %}
+      </ol>
+    </div>
+    <div class="card" id="handoffs">
+      <h3>Handoffs · Epic and payer stubs</h3>
+      <div class="buttons">
+        <form method="post" action="/case/{{ s.patient_key }}/handoff/schedule"><button class="green">Send to scheduling</button></form>
+        <form method="post" action="/case/{{ s.patient_key }}/handoff/pa_packet"><button class="secondary">Prepare PA packet</button></form>
+        <form method="post" action="/case/{{ s.patient_key }}/handoff/missing_info"><button class="secondary">Send missing-info request</button></form>
+        <form method="post" action="/case/{{ s.patient_key }}/handoff/triage"><button class="secondary">Notify triage</button></form>
+        <form method="post" action="/case/{{ s.patient_key }}/handoff/identity_task"><button class="secondary">Identity verification task</button></form>
+      </div>
+      <p class="small muted" style="margin:8px 0 0">"Send to scheduling" is always clickable. If a gate fails, the attempt is blocked and audited.</p>
+      {% if active_sched %}<p class="small">Active scheduling handoff: <a href="/outbox/{{ active_sched.handoff_id }}">{{ active_sched.handoff_id }}</a></p>{% endif %}
+      {% for r in recalls %}
+      <div class="recall"><b>RECALLED</b> {{ r.work_item.original_handoff_id }} by <a href="/outbox/{{ r.handoff_id }}">{{ r.handoff_id }}</a> (automatic, sent to {{ r.receiving_system }}): failing gates {{ r.work_item.failing_gates|join(', ') }} · reasons {{ r.work_item.reason_codes|join(', ') }}</div>
+      {% endfor %}
+      {% if outbox %}<ul class="handoff-list">{% for o in outbox %}<li><span class="chip {{ 'neutral' if o.work_item.type == 'scheduling_recall' else 'ok' }}">{{ o.work_item.type }}</span><a href="/outbox/{{ o.handoff_id }}">{{ o.handoff_id }}</a><span class="muted small">→ {{ o.receiving_system }}</span></li>{% endfor %}</ul>{% endif %}
+    </div>
+  </div>
+
+  <section class="simulate" id="simulate">
+    <h3>Simulate a human decision <span class="sim-badge">SIMULATED – not from source PDFs</span></h3>
+    <p class="small" style="margin:0">Each control records a labelled event (separate, append-only table) with role, time and an audit entry. Events never change PDF evidence, and the engine never creates them.</p>
+    <div class="simgrid">
+      <form method="post" action="/case/{{ s.patient_key }}/simulate">
+        <input type="hidden" name="type" value="PAYER_PA_DECISION"><h4>Payer PA decision</h4>
+        <label>Decision <select name="decision"><option>approved</option><option>pended</option><option>denied</option></select></label>
+        <label>Recorded by <select name="actor_role">{% for r in roles.PAYER_PA_DECISION %}<option>{{ r }}</option>{% endfor %}</select></label>
+        <label>Note <input name="note" placeholder="mock payer reference"></label>
+        <button>Simulate payer decision</button>
+      </form>
+      <form method="post" action="/case/{{ s.patient_key }}/simulate">
+        <input type="hidden" name="type" value="CLINICAL_REVIEW_DECISION"><h4>Clinical review decision</h4>
+        <label>Decision <select name="decision"><option>cleared_for_scheduling</option><option>reviewed_hold</option><option>not_cleared</option></select></label>
+        <label>Role <select name="actor_role">{% for r in roles.CLINICAL_REVIEW_DECISION %}<option>{{ r }}</option>{% endfor %}</select></label>
+        <label>Name <input name="actor_name"></label>
+        <label>Note <input name="note"></label>
+        <button>Simulate clinical decision</button>
+      </form>
+      <form method="post" action="/case/{{ s.patient_key }}/simulate">
+        <input type="hidden" name="type" value="IDENTITY_RESOLUTION"><h4>Identity resolution (Epic)</h4>
+        <input type="hidden" name="actor_role" value="Intake Coordinator">
+        <label>Confirmed DOB <input name="confirmed_dob" placeholder="YYYY-MM-DD"></label>
+        <label>Confirmed member ID <input name="confirmed_member_id"></label>
+        <label>Confirmed name <input name="confirmed_name"></label>
+        <label>Epic reference* <input name="epic_reference" placeholder="EPIC-REG-…"></label>
+        <label>Note* <input name="note"></label>
+        <button>Simulate identity resolution</button>
+      </form>
+      <form method="post" action="/case/{{ s.patient_key }}/simulate" id="sim-benefits">
+        <input type="hidden" name="type" value="BENEFITS_RESPONSE"><h4>New E&amp;B response</h4>
+        <input type="hidden" name="actor_role" value="Insurance Benefits Manager (mock)">
+        {% if form == 'benefits' and msg %}<p class="flash flash-bad small form-error">{{ msg }}</p>{% endif %}
+        <label>Response date <input name="response_date" value="{{ policy.eval_date }}" placeholder="YYYY-MM-DD, on or before {{ policy.eval_date }}"></label>
+        <label>Payer <input name="payer"></label>
+        <label>Plan product <input name="plan_product_raw" list="products"></label>
+        <datalist id="products">{% for p in products %}<option value="{{ p }}">{% endfor %}</datalist>
+        <label>Member ID <input name="member_id"></label>
+        <label>Active on {{ policy.eval_date }} <select name="active"><option value="true">true</option><option value="false">false</option><option value="">not stated</option></select></label>
+        <label>Product end date <input name="product_end_date" placeholder="optional"></label>
+        <button>Simulate E&amp;B response</button>
+      </form>
+    </div>
+    {% if events %}
+    <h4 style="margin:14px 0 6px">Simulated events on this case</h4>
+    <div class="table-card"><table class="small">{% for e in events %}<tr><td><span class="sim-badge">SIMULATED</span> {{ e.event_id }}</td><td>{{ e.type }}</td><td>{{ e.decision }}{% if e.pa_handoff_id %} · answers {{ e.pa_handoff_id }}{% endif %}</td><td>{{ e.actor_role }}{% if e.actor_name %} ({{ e.actor_name }}){% endif %}</td><td>sim time {{ e.event_time }}</td><td>recorded {{ e.recorded_at }}</td><td>{{ e.note or '' }}</td></tr>{% endfor %}</table></div>
+    {% endif %}
+  </section>
+
+  <h3 class="section-title" id="audit">Audit trail <span class="muted small">newest first · append-only</span></h3>
+  <div class="card">
+  <ul class="timeline">
+    {% for a in audit %}{% set d = a.detail %}
+    <li class="k-{{ a.kind }}"><span class="when">{{ a.at }}</span><span class="kind">{{ a.kind|replace('_',' ') }}</span><span class="muted">{{ a.actor }}</span><br>
+      {% if a.kind == 'evaluation' %}{{ d.policy_version }} @ {{ d.eval_date }} · holds {{ d.failing_gates|join(', ') or 'none' }} · actions {{ d.actions|join(', ') }} · next owner: {{ d.next_owner or 'none' }}{% if d.diff and not d.diff.initial %} · <b>changed:</b> {{ d.diff.keys()|join(', ') }}{% endif %}
+      {% elif a.kind == 'handoff_blocked' %}<b>blocked</b> {{ d.kind }}: {{ d.failing_gates|join(', ') }}
+      {% elif a.kind == 'sim_event' %}<span class="sim-badge">SIMULATED</span> {{ d.event_id }} {{ d.type }} {{ d.decision }}
+      {% elif a.kind == 'handoff_sent' and d.kind == 'scheduling_recall' %}<b>RECALL</b> {{ d.handoff_id }} recalls {{ d.original_handoff_id }}: {{ d.failing_gates|join(', ') }}
+      {% elif a.kind == 'state_change' %}{{ d.diff.keys()|join(', ') }}
+      {% else %}{{ d.kind }} {{ d.handoff_id or '' }}{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  </div>
+</section>
+
+{% endif %}
+<footer class="foot small muted">Evaluated under {{ policy.policy_version }} as of {{ policy.eval_date }} · config SHA-256 (policy + workflow YAML) <span class="mono">{{ config_sha256 }}</span></footer>
 {% endblock %}

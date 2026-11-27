@@ -4,18 +4,55 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Northpoint readiness{% endblock %} · SYNTHETIC</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body hx-boost="true">
   <div class="synthetic">SYNTHETIC – MOCK DATA · all names and IDs are fictional · not connected to any real system</div>
-  <header>
-    <a class="brand" href="/">Northpoint · stress-echo readiness</a>
-    <nav><a href="/">Queue</a><a href="/outbox">Outbox</a><a href="/metrics">Metrics</a></nav>
+  <header class="top">
+    <a class="brand" href="/"><span class="word">Northpoint</span><span class="x">×</span><span class="word">Tennr</span><span class="sub">Stress-echo readiness · mock</span></a>
+    <nav>
+      <a href="/" class="{% if request.url.path == '/' %}on{% endif %}">Queue</a>
+      <a href="/outbox" class="{% if request.url.path.startswith('/outbox') %}on{% endif %}">Outbox</a>
+      <a href="/metrics" class="{% if request.url.path == '/metrics' %}on{% endif %}">Metrics &amp; pilot</a>
+      <button type="button" class="lens-toggle" onclick="npLens()" title="Show what changes, what Northpoint measures and the discovery question for each layer (key: V)">Value lens</button>
+    </nav>
   </header>
   <main>
-    {% if msg %}<div class="flash {% if msg.startswith('BLOCKED') or msg.startswith('Not recorded') %}flash-bad{% endif %}">{{ msg }}</div>{% endif %}
+    {% if msg %}<div class="flash {% if msg.startswith('BLOCKED') or msg.startswith('Not recorded') %}flash-bad{% endif %}" role="status"><span class="x" onclick="this.parentNode.remove()">✕</span>{{ msg }}</div>{% endif %}
+    {% if at %}<div id="np-scroll" data-to="{{ at }}" hidden></div>{% endif %}
     {% block content %}{% endblock %}
   </main>
+  <script>
+    // Value lens: presenter-controlled, remembered per browser (never state that matters).
+    function npLens(force) {
+      var on = typeof force === "boolean" ? force : !document.body.classList.contains("lens-on");
+      document.body.classList.toggle("lens-on", on);
+      try { localStorage.setItem("np-lens", on ? "1" : "0"); } catch (e) {}
+    }
+    function npInit() {
+      try { if (localStorage.getItem("np-lens") === "1") document.body.classList.add("lens-on"); } catch (e) {}
+      if (/[?&]lens=1/.test(location.search)) npLens(true);
+      var t = document.getElementById("np-scroll");
+      if (t) { var el = document.getElementById(t.dataset.to); if (el) setTimeout(function () { el.scrollIntoView({block: "start"}); }, 60); }
+      var f = document.querySelector(".flash:not(.inline):not(.flash-bad)");
+      if (f) setTimeout(function () { f.style.transition = "opacity .4s"; f.style.opacity = "0"; setTimeout(function () { f.remove(); }, 450); }, 7000);
+    }
+    document.addEventListener("DOMContentLoaded", npInit);
+    document.addEventListener("htmx:afterSettle", npInit);
+    document.addEventListener("keydown", function (e) {
+      if ((e.key === "v" || e.key === "V") && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName) && !e.metaKey && !e.ctrlKey) npLens();
+    });
+    // One click = one write: a second submit while the first is in flight is dropped.
+    document.addEventListener("submit", function (e) {
+      var b = e.target.querySelector("button");
+      if (!b) return;
+      if (b.dataset.busy) { e.preventDefault(); e.stopImmediatePropagation(); return; }
+      b.dataset.busy = "1"; b.classList.add("busy");
+    }, true);
+  </script>
 </body>
 </html>

@@ -14,7 +14,7 @@ Everything shown is **SYNTHETIC – MOCK DATA**. Extraction was done at prep tim
 Hypothesis → discovery questions (PLAN §1.7). Note which assumptions the room confirms or breaks. Flags **A1** and **A2** are shown on the queue header and live in `config/workflow.yaml`. **Don't flip them live** (see [the note on flags](#a-note-on-flipping-a1a2)).
 
 ## 1. Queue overview (2 min) · *Ops*
-- Press **Re-run all 10 through engine**. "One engine, ten packets, no patient-specific code. Every evaluation is audited, with the policy version and a SHA-256 of the config files."
+- After Reset the queue shows the ten packets as **Awaiting engine**: extracted and cited, but with no priority, plan, gate or owner yet. Press **Run all 10 through engine**. "One engine, ten packets, no patient-specific code. Every evaluation is audited, with the policy version and a SHA-256 of the config files."
 - Baseline: **0 sendable, 2 ready for PA prep (R02, R07), 8 held**. Every case has a next action and an owner. "Nothing quietly passes."
 - Owner tabs: **Clinical Triage** shows R07, R08 (urgent). **Clinical Review** shows R03, R05, R06, R10 (expedited). **Ready for scheduling** is empty.
 - Say it: this split is a property of these ten packets, not Northpoint's exception mix.
