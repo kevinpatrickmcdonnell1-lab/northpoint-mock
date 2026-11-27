@@ -153,3 +153,56 @@ def test_brief2_case_page_audit_rows_show_next_owner(svc):
         assert "next owner: Clinical Triage RN" in html
     finally:
         del app.state.svc
+
+
+# --------------------------------------------------------------------------- #
+# Brief fix 3. Labels match the brief's wording (R1)                           #
+# --------------------------------------------------------------------------- #
+
+def test_brief3_priority_labels_are_the_briefs():
+    from app.rules.priority import LABELS
+    assert LABELS == {"PRI-1": "Urgent review", "PRI-2": "Expedited", "PRI-3": "Routine",
+                      "PRI-4": "Unable to determine"}
+
+
+def test_brief3_status_word_for_I():
+    from app.main import STATUS_WORDS
+    assert STATUS_WORDS["I"] == "Insufficient or conflicting"
+    assert STATUS_WORDS["S"] == "Supported" and STATUS_WORDS["NM"] == "Not met"
+
+
+def test_brief3_handoff_payloads_carry_the_label(svc):
+    t = send(svc, "P03", "triage")["payload"]["work_item"]
+    assert t["clinical_priority"] == "PRI-1" and t["label"] == "Urgent review"
+    send(svc, "P01", "pa_packet")
+    svc.simulate("P01", "PAYER_PA_DECISION", "approved", "Auth Specialist")
+    sched = send(svc, "P01", "schedule")["payload"]["work_item"]
+    assert sched["clinical_priority"] == "routine"
+
+
+def test_brief3_identity_is_never_inactive(svc):
+    seen = set()
+    for key in svc.store.keys():
+        seen.add(svc.state(key).identity.status)
+    svc.simulate("P04", "IDENTITY_RESOLUTION", "confirmed", "Intake Coordinator", note="Epic",
+                 confirmed={"dob": "1951-03-14", "member_id": "SCM-302177"}, epic_reference="EPIC-1")
+    seen.add(svc.state("P04").identity.status)
+    assert seen <= {"verified", "pending", "conflicting"} and "inactive" not in seen
+    assert "inactive" in {svc.state(k).coverage.status for k in svc.store.keys()}   # coverage can be
+
+
+@needs_real
+def test_brief3_labels_on_case_pages(tmp_path):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    s = _real_service(tmp_path)
+    app.state.svc = s
+    try:
+        with TestClient(app) as c:
+            r07 = c.get("/case/R07").text
+            r01 = c.get("/case/R01").text
+        assert "PRI-1 Urgent review" in r07
+        assert "Insufficient or conflicting" in r01
+    finally:
+        del app.state.svc
+        s.store.close()

@@ -20,7 +20,7 @@ Hypothesis → discovery questions (PLAN §1.7). Note which assumptions the room
 - Say it: this split is a property of these ten packets, not Northpoint's exception mix.
 
 ## 2. R07 urgent *and* PA-ready (4 min) · *Ops, Clinical*
-- Priority card: **PRI-1 Urgent**, sourced to the referral on p.2 ("Urgent clinical review requested"). Click the link: page image, quote highlighted.
+- Priority card: **PRI-1 Urgent review**, sourced to the referral on p.2 ("Urgent clinical review requested"). Click the link: page image, quote highlighted.
 - At the same time: identity, coverage and evidence all pass, so **PA prep is ready**. Gates: only **G-CLIN** and **G-PA-APPROVED** block, and both block scheduling only.
 - **Notify triage** → `HO-R07-TRIAGE-1` to the Epic In Basket stub, never gated by admin.
 - **Prepare PA packet** → `HO-R07-PA-1`. "Clinical holds never block PA prep. Auth starts today, not after triage."
