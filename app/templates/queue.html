@@ -2,53 +2,95 @@
 {% from "macros.html" import pri, st %}
 {% block title %}Queue{% endblock %}
 {% block content %}
-<section class="toolbar">
+<section class="hero">
   <div>
-    <strong>Policy {{ policy.policy_version }}</strong> · evaluated as of <strong>{{ policy.eval_date }}</strong>
-    · flags: routine needs clinical clearance = <code>{{ workflow.routine_requires_clinical_clearance|lower }}</code> (A1),
-    no-PA evidence gate = <code>{{ workflow.no_pa_evidence_gate|join(', ') }}</code> (A2)
+    <p class="eyebrow">Northpoint Heart &amp; Vascular · outpatient stress echo</p>
+    <h1>Every order. <em>One engine.</em> One owner.</h1>
+    <p class="lede">{{ kpis.n }} packets run through the same rules, with no patient-specific code. Policy <strong>{{ policy.policy_version }}</strong>, evaluated as of <strong>{{ policy.eval_date }}</strong>.</p>
   </div>
   <div class="buttons">
-    <form method="post" action="/rerun"><button>Re-run all 10 through engine</button></form>
+    <form method="post" action="/rerun"><button class="green">{{ 'Re-run' if engine_run else 'Run' }} all {{ kpis.n }} through engine</button></form>
     <form method="post" action="/reset" onsubmit="return confirm('Reset demo? Clears simulated events, audit and outbox.')"><button class="secondary">Reset demo</button></form>
   </div>
 </section>
 
-<nav class="tabs">
-  {% for k, label, _ in tabs %}<a href="/?owner={{ k }}&site={{ quote_plus(site) }}" class="{% if owner == k %}active{% endif %}">{{ label }}</a>{% endfor %}
-</nav>
-<nav class="tabs sites"><span class="muted small">Site:</span>
-  <a href="/?owner={{ owner }}&site=all" class="{% if site == 'all' %}active{% endif %}">All sites</a>
-  {% for x in sites %}<a href="/?owner={{ owner }}&site={{ quote_plus(x) }}" class="{% if site == x %}active{% endif %}">{{ x }}</a>{% endfor %}
-</nav>
-
-<div class="table-wrap">
+{% if not engine_run %}
+<section class="layers-strip" aria-label="The three layers">
+  <a href="#queue"><span class="num-big">01</span><strong>Document extraction</strong><span class="fact">Done at intake: {{ corpus.documents }} typed documents from {{ corpus.pages }} pages · {{ corpus.quotes }} cited quotes · {{ corpus.corrections }} corrections</span></a>
+  <a href="#queue"><span class="num-big">02</span><strong>Policy engine</strong><span class="fact">Not run yet. Press “Run all {{ kpis.n }} through engine”.</span></a>
+  <a href="#queue"><span class="num-big">03</span><strong>Case state &amp; audit</strong><span class="fact">Empty: no evaluations, events or handoffs recorded.</span></a>
+</section>
+<div class="table-card table-wrap" id="queue">
 <table class="queue">
-  <thead><tr>
-    <th>Priority</th><th>Patient</th><th>Site</th><th>Packet</th><th>Exact plan</th><th>Procedure</th><th>PA req</th>
-    <th>Identity</th><th>Coverage</th><th>Evidence</th><th>Holds</th><th>Next action</th><th>Owner</th><th>Age (bd)</th>
-  </tr></thead>
+  <thead><tr><th>Patient</th><th>Packet</th><th>Received</th><th>Extracted</th><th>Status</th></tr></thead>
+  <tbody>
+  {% for a in arrivals %}
+  <tr>
+    <td class="who"><a href="/case/{{ a.key }}"><strong>{{ a.key }}</strong><span class="nm">{{ a.name }}</span></a></td>
+    <td class="mono small">{{ a.ef.packet_id }}</td>
+    <td>{{ a.ef.received_at }} <span class="muted small">via {{ a.ef.received_channel|replace('_',' ') }}</span></td>
+    <td>{{ a.ef.documents|length }} documents <span class="muted small">· {{ a.ef.documents|map(attribute='pages')|sum(start=[])|unique|list|length }} pages</span></td>
+    <td><span class="st st-pending">Awaiting engine</span></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="muted small">The packets have arrived and been read into cited facts. No priority, plan, gate, owner or next action exists until the engine runs. Reset returns here.</p>
+{% else %}
+<section class="kpis">
+  <div class="kpi {{ 'good' if kpis.sendable else '' }}"><div class="n">{{ kpis.sendable }}</div><div class="l">Sendable to scheduling</div></div>
+  <div class="kpi warn"><div class="n">{{ kpis.pa_ready }}</div><div class="l">Ready for PA prep</div></div>
+  <div class="kpi bad"><div class="n">{{ kpis.held }}</div><div class="l">Held · each with an owner</div></div>
+  <div class="kpi"><div class="n">{{ kpis.handed }}</div><div class="l">Handed to scheduling</div></div>
+  <div class="kpi dark"><div class="n">{{ kpis.gate_leaks }}</div><div class="l">Gate leaks (must be 0)</div></div>
+</section>
+
+<section class="layers-strip" aria-label="The three layers across all packets">
+  <a href="#queue"><span class="num-big">01</span><strong>Document extraction</strong><span class="fact">{{ corpus.documents }} typed documents from {{ corpus.pages }} pages · {{ corpus.quotes }} cited quotes · {{ corpus.corrections }} corrections</span></a>
+  <a href="#queue"><span class="num-big">02</span><strong>Policy engine</strong><span class="fact">{{ kpis.holds }} open gates found at intake · {{ kpis.clinical }} routed to clinical review separately</span></a>
+  <a href="#queue"><span class="num-big">03</span><strong>Case state &amp; audit</strong><span class="fact">{{ kpis.actions }} next actions across {{ kpis.owners }} owner roles · every change audited</span></a>
+</section>
+
+<section class="toolbar" id="queue">
+  <nav class="pills">
+    {% for k, label, _ in tabs %}<a href="/?owner={{ k }}&site={{ quote_plus(site) }}" class="{% if owner == k %}active{% endif %}">{{ label }} <span class="muted">{{ tab_counts[k] }}</span></a>{% endfor %}
+  </nav>
+  {% if sites|length > 1 or sites[0] != '(unknown)' %}<nav class="pills"><span class="muted small">Site</span>
+    <a href="/?owner={{ owner }}&site=all" class="{% if site == 'all' %}active{% endif %}">All</a>
+    {% for x in sites %}<a href="/?owner={{ owner }}&site={{ quote_plus(x) }}" class="{% if site == x %}active{% endif %}">{{ x }}</a>{% endfor %}
+  </nav>{% endif %}
+</section>
+
+<div class="table-card table-wrap">
+<table class="queue">
+  <thead>
+    <tr class="groups"><th colspan="2"><span>Order</span></th><th class="g1"><span>01 · Extraction</span></th><th colspan="4"><span>02 · Policy engine</span></th><th colspan="4" class="g3"><span>03 · Case state</span></th></tr>
+    <tr>
+      <th>Priority</th><th>Patient · procedure</th><th>Packet</th>
+      <th>Exact plan · PA req</th><th>Identity</th><th>Coverage</th><th>Evidence</th>
+      <th>Holds</th><th>Next action</th><th>Owner</th><th class="num">Age (bd)</th>
+    </tr>
+  </thead>
   <tbody>
   {% for r in rows %}{% set s = r.s %}
   <tr>
     <td>{{ pri(s.priority.status, s.priority.detail.label) }}</td>
-    <td><a href="/case/{{ s.patient_key }}"><strong>{{ s.patient_key }}</strong> {{ r.name }}</a></td>
-    <td>{{ r.site }}</td>
-    <td class="mono">{{ r.packet }}</td>
-    <td>{{ r.plan }}</td>
-    <td>{{ r.procedure }}</td>
-    <td>{{ st(s.pa_requirement) }}</td>
+    <td class="who"><a href="/case/{{ s.patient_key }}"><strong>{{ s.patient_key }}</strong><span class="nm">{{ r.name }}</span></a><span class="sub">{{ r.procedure }}</span><span class="sub mono">{{ r.packet }}{% if r.site != '(unknown)' %} · {{ r.site }}{% endif %}</span></td>
+    <td><span class="small">{{ r.docs }} docs</span><span class="sub small muted" style="display:block">{{ r.pages }} pages</span></td>
+    <td class="wrap plan">{{ r.plan }}<div style="margin-top:3px">{{ st(s.pa_requirement) }}</div></td>
     <td>{{ st(s.identity.status) }}</td>
     <td>{{ st(s.coverage.status) }}</td>
     <td>{{ st(s.criteria.EVIDENCE.status) }}</td>
-    <td>{% if r.sent %}<span class="chip ok">handed off</span>{% elif r.holds %}<b>{{ r.holds|length }}</b> {% for h in r.holds %}<span class="chip">{{ h }}</span>{% endfor %}{% else %}<span class="chip ok">none</span>{% endif %}</td>
-    <td>{% if r.next %}{{ r.next.action }}{% if s.actions|length > 1 %} <span class="muted">(+{{ s.actions|length - 1 }})</span>{% endif %}{% endif %}</td>
-    <td>{{ r.next.owner_role if r.next else '' }}</td>
+    <td class="wrap holds">{% if r.sent %}<span class="chip ok">handed off</span>{% elif r.holds %}{% for h in r.holds %}<span class="chip">{{ h }}</span>{% endfor %}{% else %}<span class="chip ok">none</span>{% endif %}</td>
+    <td class="wrap next">{% if r.next %}{{ r.next.action }}{% if s.actions|length > 1 %} <span class="muted">(+{{ s.actions|length - 1 }})</span>{% endif %}{% endif %}</td>
+    <td class="owner">{{ r.next.owner_role if r.next else '' }}</td>
     <td class="num">{{ r.age }}</td>
   </tr>
-  {% else %}<tr><td colspan="14" class="muted">No cases for this owner.</td></tr>{% endfor %}
+  {% else %}<tr><td colspan="11" class="muted">No cases for this owner.</td></tr>{% endfor %}
   </tbody>
 </table>
 </div>
-<p class="muted small">Age = business days (Mon–Fri, no holidays; A7) from receipt to the evaluation date. Baseline split is a property of the mock set, not Northpoint's exception mix.</p>
+<p class="muted small">Flags: routine needs clinical clearance = <code>{{ workflow.routine_requires_clinical_clearance|lower }}</code> (A1) · no-PA evidence gate = <code>{{ workflow.no_pa_evidence_gate|join(', ') }}</code> (A2). Age = business days from receipt to the evaluation date (A7). This split is a property of these packets, not Northpoint's exception mix.</p>
+{% endif %}
 {% endblock %}
