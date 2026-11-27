@@ -457,3 +457,70 @@ def test_fix8_check_extractions_warns_but_passes():
     warns = [ln for ln in p.stdout.splitlines() if ln.startswith("WARNING") and "no quote of its own" in ln]
     assert warns, p.stdout
     assert "ERROR" not in p.stdout
+
+
+# --------------------------------------------------------------------------- #
+# Fix 9. Page viewer back link broken on the real set                          #
+# --------------------------------------------------------------------------- #
+
+import html as _html  # noqa: E402
+import re as _re  # noqa: E402
+
+
+def _dataset_client(tmp_path, monkeypatch, ds):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.pdfs import PAGES, extractions_dir, load_extractions, real_ready
+    from app.service import Service
+    if ds == "real" and not real_ready():
+        pytest.skip("real PDFs not in data/packets")
+    efs = load_extractions(extractions_dir(ds))
+    missing = sorted({ef.source_file for ef in efs.values() if not (PAGES / ef.source_file).exists()})
+    if missing:
+        pytest.skip(f"pages not ingested (run `make ingest`): {missing[:3]}")
+    monkeypatch.setenv("NORTHPOINT_DATASET", ds)
+    s = Service(db_path=tmp_path / f"{ds}.db", outbox_dir=tmp_path / "outbox",
+                extractions_dir=extractions_dir(ds))
+    s.seed()
+    app.state.svc = s
+    return TestClient(app), s, app
+
+
+@pytest.mark.parametrize("ds", ["mock", "real"])
+def test_fix9_crawl_case_pages_page_links_and_back_links(tmp_path, monkeypatch, ds):
+    client, s, app = _dataset_client(tmp_path, monkeypatch, ds)
+    try:
+        with client as c:
+            n_links = 0
+            for key in s.store.keys():
+                r = c.get(f"/case/{key}")
+                assert r.status_code == 200, key
+                links = sorted({_html.unescape(h) for h in _re.findall(r'href="(/page/[^"]+)"', r.text)})
+                assert links, f"{key}: no page links"
+                for link in links:
+                    assert f"case={key}" in link, f"{key}: link without case key: {link}"
+                    p = c.get(link)
+                    assert p.status_code == 200, link
+                    back = _re.findall(r'href="(/case/[^"]+)"', p.text)
+                    assert back == [f"/case/{key}"], (link, back)
+                    assert c.get(back[0]).status_code == 200
+                    n_links += 1
+            assert n_links >= 10 * len(s.store.keys()) // 2
+    finally:
+        del app.state.svc
+        s.store.close()
+
+
+@pytest.mark.parametrize("ds", ["mock", "real"])
+def test_fix9_back_link_falls_back_to_citing_extraction(tmp_path, monkeypatch, ds):
+    client, s, app = _dataset_client(tmp_path, monkeypatch, ds)
+    try:
+        with client as c:
+            for key in s.store.keys():
+                ef = s.store.case(key)
+                p = c.get(f"/page/{ef.source_file}/{ef.documents[0].pages[0]}")   # no ?case=
+                assert p.status_code == 200
+                assert _re.findall(r'href="(/case/[^"]+)"', p.text) == [f"/case/{key}"]
+    finally:
+        del app.state.svc
+        s.store.close()

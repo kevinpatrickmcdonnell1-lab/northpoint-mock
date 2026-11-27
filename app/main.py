@@ -5,7 +5,7 @@ import os
 from datetime import date
 from pathlib import Path
 from typing import Optional
-from urllib.parse import quote_plus
+from urllib.parse import quote, quote_plus, urlencode
 
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
@@ -36,7 +36,17 @@ STATUS_WORDS = {"S": "Supported", "NM": "Not met", "I": "Insufficient", "NA": "N
 OWNER_TABS = [("all", "All", None), ("triage", "Clinical Triage", "Clinical Triage RN"),
               ("review", "Clinical Review", "Clinical Review RN"), ("intake", "Intake", "Intake Coordinator"),
               ("auth", "Auth", "Auth Specialist"), ("ready", "Ready for scheduling", None)]
-templates.env.globals.update(STATUS_WORDS=STATUS_WORDS, TITLES=TITLES, quote_plus=quote_plus)
+
+
+def page_url(file: str, page: int, case: Optional[str] = None, q: Optional[str] = None,
+             field: Optional[str] = None) -> str:
+    """Page-viewer link. Carries the case key so the back link never guesses it (Fix 9)."""
+    params = {k: v for k, v in (("case", case), ("q", q), ("field", None if q else field)) if v}
+    return f"/page/{quote(file)}/{page}" + (f"?{urlencode(params)}" if params else "")
+
+
+templates.env.globals.update(STATUS_WORDS=STATUS_WORDS, TITLES=TITLES, quote_plus=quote_plus,
+                             page_url=page_url)
 
 
 def svc() -> Service:
@@ -199,9 +209,22 @@ def handoff(key: str, kind: str):
 
 # ---------------------------------------------------------------- pages, outbox, metrics
 
+def case_for_page(service: Service, file: str, page: int, case: Optional[str]) -> Optional[str]:
+    """The case a page belongs to: the ?case= key if it cites this file, else the extraction
+    whose documents cite this file and page (combined PDFs included). Never parsed from the name."""
+    keys = service.store.keys()
+    if case in keys and service.store.case(case).source_file == file:
+        return case
+    for k in keys:
+        ef = service.store.case(k)
+        if ef.source_file == file and any(page in d.pages for d in ef.documents):
+            return k
+    return None
+
+
 @app.get("/page/{file}/{page}")
 def page_viewer(request: Request, file: str, page: int, q: Optional[str] = None,
-                field: Optional[str] = None):
+                field: Optional[str] = None, case: Optional[str] = None):
     txt = PAGES / file / f"{page}.txt"
     if "/" in file or ".." in file or not txt.exists():
         raise HTTPException(404, "Page not ingested. Run `make ingest`.")
@@ -213,7 +236,7 @@ def page_viewer(request: Request, file: str, page: int, q: Optional[str] = None,
         if i >= 0:
             j = i + len(" ".join(q.split()))
             parts = (norm[:i], norm[i:j], norm[j:])
-    key = file.split("_")[0]
+    key = case_for_page(svc(), file, page, case)
     return templates.TemplateResponse(request, "page.html", {
         "file": file, "page": page, "q": q, "text": text, "parts": parts, "key": key, "field": field})
 

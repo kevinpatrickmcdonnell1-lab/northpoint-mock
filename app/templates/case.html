@@ -9,7 +9,7 @@
     <h3>Clinical priority</h3>
     <p>{{ pri(s.priority.status, s.priority.detail.label) }}</p>
     <p class="small">{{ s.priority.reason_text }}</p>
-    <p class="small">Source: {% for r in s.priority.evidence_refs %}{{ ref_link(r) }} {% else %}none{% endfor %}</p>
+    <p class="small">Source: {% for r in s.priority.evidence_refs %}{{ ref_link(r, s.patient_key) }} {% else %}none{% endfor %}</p>
     <p class="small muted">Independent of payer, coverage, PA and identity.</p>
   </div>
   <div class="card">
@@ -22,7 +22,7 @@
     {% for f, e in s.identity.detail.fields.items() if e.status in ('conflicting', 'resolved') %}
       <div class="conflict">
         <b>{{ f }}</b> — {{ e.status }}{% if e.status == 'resolved' %}: <b>{{ e.confirmed }}</b> confirmed in Epic ({{ e.epic_reference }}) <span class="sim-badge">SIMULATED – not from PDF</span>{% endif %}
-        <ul>{% for v in e['values'] %}<li><span class="mono">{{ v.value }}</span> · {{ TITLES[v.doc_type] }} · <a class="ref" href="/page/{{ v.file }}/{{ v.page }}">{{ v.file }} p.{{ v.page }}</a></li>{% endfor %}</ul>
+        <ul>{% for v in e['values'] %}<li><span class="mono">{{ v.value }}</span> · {{ TITLES[v.doc_type] }} · <a class="ref" href="{{ page_url(v.file, v.page, s.patient_key) }}">{{ v.file }} p.{{ v.page }}</a></li>{% endfor %}</ul>
         {% if e.status == 'conflicting' %}<p class="small muted">Never auto-selected. Verify in Epic.</p>{% endif %}
       </div>
     {% endfor %}
@@ -31,7 +31,7 @@
     <h3>Coverage (COV-1)</h3>
     <p>{{ st(s.coverage.status) }} {% if s.coverage.reason_code %}<code>{{ s.coverage.reason_code }}</code>{% endif %}</p>
     <p class="small">{{ s.coverage.reason_text }}</p>
-    <p class="small">{% for r in s.coverage.evidence_refs %}{{ ref_link(r) }} {% endfor %}</p>
+    <p class="small">{% for r in s.coverage.evidence_refs %}{{ ref_link(r, s.patient_key) }} {% endfor %}</p>
   </div>
   <div class="card">
     <h3>PA requirement</h3>
@@ -52,7 +52,7 @@
         <td><b>{{ k }}</b></td>
         <td>{{ st(r.status) }}{% if r.detail.branches %}<div class="small muted">A: {{ r.detail.branches.A }} · B: {{ r.detail.branches.B }}</div>{% endif %}</td>
         <td class="small">{{ r.reason_text }}{% if r.reason_code %} <code>{{ r.reason_code }}</code>{% endif %}</td>
-        <td class="small">{% if k != 'EVIDENCE' %}{% for e in r.evidence_refs %}{{ ref_link(e) }}<br>{% endfor %}{% endif %}</td>
+        <td class="small">{% if k != 'EVIDENCE' %}{% for e in r.evidence_refs %}{{ ref_link(e, s.patient_key) }}<br>{% endfor %}{% endif %}</td>
       </tr>
     {% endfor %}
     </tbody>
@@ -152,7 +152,7 @@
     <tr class="{% if x.unused %}unused{% endif %}">
       <td>{{ TITLES[d.doc_type] }}</td><td>{{ d.date or '' }}</td>
       <td>{% if d.doc_type in ('registration_face_sheet','insurance_card','benefits_response') %}n/a (admin){% elif d.signed %}{{ d.signer }}{% else %}<b>unsigned</b>{% endif %}</td>
-      <td>{% for p in d.pages %}<a class="ref" href="/page/{{ ef.source_file }}/{{ p }}">p.{{ p }}</a> {% endfor %}</td>
+      <td>{% for p in d.pages %}<a class="ref" href="{{ page_url(ef.source_file, p, s.patient_key) }}">p.{{ p }}</a> {% endfor %}</td>
       <td>{% if x.unused %}<span class="chip">{{ x.unused }}</span>{% else %}used by rules{% endif %}</td>
     </tr>
     {% endfor %}
