@@ -48,7 +48,7 @@ def active_scheduling_handoff(svc: Service, key: str) -> dict | None:
 def send(svc: Service, key: str, kind: str, actor: str = "UI user") -> dict[str, Any]:
     work_type, receiver, tag = KINDS[kind]
     s = svc.state(key)
-    ef = svc.store.case(key)
+    ef = svc.case(key)
     events = svc.store.events(key)
     svc.store.audit(key, wall_clock(), actor, "handoff_attempt", {"kind": work_type})
 
@@ -120,6 +120,10 @@ def send(svc: Service, key: str, kind: str, actor: str = "UI user") -> dict[str,
         "evidence_refs": _evidence(s) if kind in ("schedule", "pa_packet") else [],
         "simulated_dependencies": [{"event_id": e.event_id, "type": e.type, "decision": e.decision,
                                     "simulated": True} for e in events],
+        # Human corrections the receiving team should know the facts went through.
+        "fact_corrections": [{"review_id": r.review_id, "doc_id": r.doc_id, "field": r.field,
+                              "value": r.value, "page": r.quote_page, "by": r.actor_role}
+                             for r in svc.store.reviews(key) if r.action == "correct"],
         "policy_version": s.policy_version, "eval_date": str(s.eval_date), "status": "recorded",
         "label": "SYNTHETIC – MOCK DATA",
     }
@@ -154,7 +158,7 @@ def recall_if_needed(svc: Service, key: str, actor: str = "system (automatic rec
         return None
     failing = [g.gate for g in s.gates if not g.passed]
     reasons = [a.reason_code for a in s.actions]
-    ef = svc.store.case(key)
+    ef = svc.case(key)
     n = svc.store.outbox_count(key, RECALL_TYPE) + 1
     item = {"type": RECALL_TYPE, "packet_id": ef.packet_id, "mrn": active["work_item"].get("mrn"),
             "original_handoff_id": active["handoff_id"], "failing_gates": failing,

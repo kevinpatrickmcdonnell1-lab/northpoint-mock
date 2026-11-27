@@ -225,7 +225,19 @@ Aligns the mock with the interview brief's requirements R1–R10 (see `docs/requ
 - **Fix:** `Service.seed(evaluate=False)` loads the packets without evaluating. Reset, a fresh DB and `make seed` all start in the "packets arrived, engine not run" state. The queue lists the packets as "Awaiting engine", case pages show Layer 1 only, and metrics show extraction only. The run button (a real, audited evaluation) fills everything in. Reset keeps the current dataset and outbox directory.
 - **Verified:** `test_reset_leaves_packets_loaded_but_not_evaluated`, `test_case_before_run_shows_extraction_only` and `test_run_after_reset_populates_and_audits` failed first, then passed. 318 tests pass.
 
+### 17. R01 order's signer quote cited the date, not the signature (extraction error)
+- **What:** on every real packet's stress echo order, the quote backing `signer` was the date-signed line ("09/20/2026" on R01; "Date signed …" from the R02–R10 template in `author_real_extractions.py`). The `signer` value was right; its evidence was not. The bulk review on 2026-11-25 signed it off as "verified, no corrections".
+- **Found by:** Kevin, reading the R01 page viewer on 2026-11-27.
+- **Fix:** each order now has a `signer` quote ("Electronically signed by …") and a separate `date` quote. Extractions regenerated, and all 20 new quotes were checked on their pages.
+- **Verified:** 336 tests pass. `tests/test_fact_review.py::test_check_catches_the_signer_bug_that_bulk_review_missed` puts the bug back and asserts the new fact check flags it.
+
+### 18. Human review of extracted facts (feature; motivated by 17)
+- **What:** fact checks (`app/fact_review.py`) flag a quote that doesn't back its fact. A person confirms or corrects each fact in the page viewer. Corrections go in an append-only `fact_reviews` table and are laid over the immutable source, the engine evaluates the reviewed facts, and handoff payloads list the corrections applied. A new "Fact review" queue tab lists cases with open flags.
+- **Found by:** item 17. The checks also found 11 weak quotes on the real packets: on 9 orders `procedure` is quoted as "Separate diagnostic order", and on 2 notes `timing_text` is quoted as a fragment. They are left in the data on purpose, as live items for the review flow (see B34).
+- **Verified:** `tests/test_fact_review.py` (28 tests): the check catches the reintroduced bug; mock packets raise no flags; a correction changes results only through the rules and leaves `cases` unchanged; ten kinds of bad correction are refused and record nothing; clinical facts need a clinical role; a correction after a scheduling handoff triggers the recall; `fact_reviews` rejects UPDATE/DELETE; open flags never change any engine result; HTTP flow; handoff payload provenance.
+
 ## Verification summary
+- **After fact review (2026-11-27):** `make test`: 364 tests (28 new); `make check`: 0 errors, 143 warnings. Both golden tables unchanged.
 - **After the UI rework, rebased on brief alignment (2026-11-27):** `make test`: 336 tests; `make check`: 0 errors, 143 warnings. Both golden tables unchanged.
 - **After brief alignment (2026-11-27):** `make test`: 327 tests; `make check`: 0 errors, 143 warnings. Both golden tables unchanged.
 - **After seam hardening (2026-11-27):** `make test`: 309 tests (228 before the branch); `make check`: 0 errors, 143 warnings (judgment fields without their own quote, by design). Both golden tables unchanged.

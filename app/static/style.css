@@ -288,3 +288,17 @@ mark { background:var(--clay); color:var(--night); padding:0 2px; }
 /* inline form error inside the E&B simulate form (not a toast) */
 .flash.form-error { position:static; animation:none; box-shadow:none; max-width:none; margin:0; padding:8px 10px; font-size:12px; }
 details summary { cursor:pointer; margin-top:8px; }
+
+/* Fact review (human in the loop on extracted facts) */
+.reviewer-bar label { display:inline-flex; gap:6px; align-items:center; margin-right:12px; }
+.reviewer-bar select, .reviewer-bar input, .fact-form input, .fact-form textarea { font:inherit; font-size:12.5px; padding:4px 6px; border:1px solid var(--line-2); border-radius:2px; background:var(--paper, #fff); color:inherit; }
+.fact-row { border-top:1px dashed var(--line-2); padding:6px 0 8px; }
+.fact-row.flagged { background:var(--warnbg); margin:0 -8px; padding:6px 8px 8px; }
+.fact-row .fact-flag, .fact-row .fact-status { display:block; margin:4px 0; }
+.fact-actions { display:flex; gap:6px; margin-top:4px; }
+.fact-note { flex:1; min-width:0; }
+.btn-small { padding:4px 9px; font-size:10.5px; }
+.fact-correct { margin-top:4px; }
+.fact-correct label { display:block; margin:4px 0; }
+.fact-correct input, .fact-correct textarea { width:100%; box-sizing:border-box; }
+.chip.warn { background:var(--warnbg); color:var(--warn); }

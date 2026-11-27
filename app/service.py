@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from app.engine import evaluate, state_hash
-from app.models import BenefitsResponseFields, CaseState, SimEvent
+from app import fact_review as fr
+from app.models import BenefitsResponseFields, CaseState, ExtractionFile, SimEvent
 from app.pdfs import extractions_dir as active_extractions_dir, load_extractions
 from app.policy import POLICY_PATH, WORKFLOW_PATH, Policy, Workflow, load_config
 from app.store import Store
@@ -97,13 +98,25 @@ class Service:
         return self.store.db.execute(
             "SELECT 1 FROM audit_log WHERE kind='evaluation' LIMIT 1").fetchone() is not None
 
+    # ---- facts: source + human corrections ------------------------------------
+    def case(self, key: str) -> ExtractionFile:
+        """The reviewed facts: the immutable source extraction with every human correction laid
+        over it. Everything that evaluates or hands off reads this; `store.case` is the source."""
+        return fr.apply_reviews(self.store.case(key), self.store.reviews(key))
+
+    def flags(self, key: str) -> list[fr.Flag]:
+        return fr.check_facts(self.case(key))
+
+    def open_flags(self, key: str) -> list[fr.Flag]:
+        return fr.open_flags(self.flags(key), self.store.reviews(key))
+
     # ---- evaluation -----------------------------------------------------------
     def state(self, key: str) -> CaseState:
-        return evaluate(self.store.case(key), self.store.events(key), self.policy, self.workflow)
+        return evaluate(self.case(key), self.store.events(key), self.policy, self.workflow)
 
     def states(self) -> list[CaseState]:
         events = self.store.events()
-        return [evaluate(self.store.case(k), events, self.policy, self.workflow) for k in self.store.keys()]
+        return [evaluate(self.case(k), events, self.policy, self.workflow) for k in self.store.keys()]
 
     def evaluate_and_record(self, key: str, actor: str = "system", kind: str = "evaluation") -> CaseState:
         s = self.state(key)
@@ -120,6 +133,66 @@ class Service:
 
     def evaluate_all(self, actor: str = "system") -> list[CaseState]:
         return [self.evaluate_and_record(k, actor) for k in self.store.keys()]
+
+    # ---- human fact review (explicit action only) -------------------------------
+    def review_fact(self, key: str, doc_id: str, field: str, action: str, actor_role: str,
+                    actor_name: str, reason: Optional[str] = None, value: Optional[str] = None,
+                    quote_text: Optional[str] = None, quote_page: Optional[int] = None) -> fr.FactReview:
+        """Record that a person confirmed or corrected one fact. Every refusal raises ValueError
+        before anything is written. A correction must quote the page text that supports it."""
+        ef = self.case(key)
+        doc = next((d for d in ef.documents if d.doc_id == doc_id), None)
+        if doc is None:
+            raise ValueError(f"No document {doc_id} in {key}.")
+        if actor_role not in fr.REVIEW_ROLES:
+            raise ValueError(f"{actor_role or 'No role'} cannot review facts "
+                             f"(allowed: {', '.join(fr.REVIEW_ROLES)}).")
+        if not (actor_name or "").strip():
+            raise ValueError("A fact review needs the reviewer's name.")
+        if field in fr.IDENTIFIER_FIELDS:
+            raise ValueError(f"{field} is an identifier. Disagreeing identifiers are settled by "
+                             "Identity resolution on the case page, never by editing what a page says.")
+        quoted = {q.field for q in doc.quotes}
+        allowed = set(fr.correctable_fields(doc.doc_type)) | (quoted if action == "confirm" else set())
+        if field not in allowed:
+            raise ValueError(f"{field} is not a fact on {doc_id} ({doc.doc_type}).")
+        if fr.is_clinical(field) and actor_role not in fr.CLINICAL_ROLES:
+            raise ValueError(f"{field} is a clinical fact: only {', '.join(fr.CLINICAL_ROLES)} "
+                             "may confirm or correct it.")
+        reason = (reason or "").strip() or None
+        before = fr.current_value(doc, field) if field in fr.correctable_fields(doc.doc_type) else None
+        after = None
+        if action == "correct":
+            if not (quote_text or "").strip():
+                raise ValueError("A correction needs the page text that supports the new value.")
+            if quote_page not in doc.pages:
+                raise ValueError(f"p.{quote_page} is not one of this document's pages {doc.pages}.")
+            if not fr.quote_on_page(quote_text, ef.source_file, quote_page):
+                raise ValueError(f"That text was not found on p.{quote_page}. Copy it exactly from the page.")
+            if not reason:
+                raise ValueError("A correction needs a reason.")
+            after = fr.validate_correction(ef, doc_id, field, value or "", quote_page, quote_text.strip())
+        elif action == "confirm":
+            if not reason and any(f.doc_id == doc_id and f.field == field for f in self.open_flags(key)):
+                raise ValueError(f"{field} is flagged; say why it is right in the note before confirming.")
+            value = quote_text = quote_page = None
+        else:
+            raise ValueError(f"Unknown review action {action!r}.")
+        r = fr.FactReview(
+            review_id=f"FR-{self.store.review_count() + 1:04d}", patient_key=key, doc_id=doc_id,
+            field=field, action=action, value=after, reason=reason,
+            quote_text=quote_text.strip() if quote_text else None, quote_page=quote_page,
+            actor_role=actor_role, actor_name=actor_name.strip(),
+            recorded_at=datetime.now().replace(microsecond=0))
+        self.store.add_review(r)
+        self.store.audit(key, wall_clock(), actor_role, "correction",
+                         {**r.model_dump(mode="json"), "before": before,
+                          "after": after if action == "correct" else before})
+        if action == "correct":
+            self.evaluate_and_record(key, actor=f"system (after {r.review_id})", kind="state_change")
+            from app.handoffs import recall_if_needed
+            recall_if_needed(self, key)
+        return r
 
     # ---- simulated events (explicit action only) ------------------------------
     def next_event_time(self) -> datetime:

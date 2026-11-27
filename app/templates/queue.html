@@ -77,7 +77,7 @@
   <tr>
     <td>{{ pri(s.priority.status, s.priority.detail.label) }}</td>
     <td class="who"><a href="/case/{{ s.patient_key }}"><strong>{{ s.patient_key }}</strong><span class="nm">{{ r.name }}</span></a><span class="sub">{{ r.procedure }}</span><span class="sub mono">{{ r.packet }}{% if r.site != '(unknown)' %} · {{ r.site }}{% endif %}</span></td>
-    <td><span class="small">{{ r.docs }} docs</span><span class="sub small muted" style="display:block">{{ r.pages }} pages</span></td>
+    <td><span class="small">{{ r.docs }} docs</span><span class="sub small muted" style="display:block">{{ r.pages }} pages</span>{% if r.flags %}<a class="chip warn" href="/case/{{ s.patient_key }}#fact-review" title="Facts whose quote doesn't back them; a person should confirm or correct them">{{ r.flags|length }} fact flag{{ 's' if r.flags|length != 1 }}</a>{% endif %}</td>
     <td class="wrap plan">{{ r.plan }}<div style="margin-top:3px">{{ st(s.pa_requirement) }}</div></td>
     <td>{{ st(s.identity.status) }}</td>
     <td>{{ st(s.coverage.status) }}</td>

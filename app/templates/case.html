@@ -31,7 +31,7 @@
 
 {# =============================================================== LAYER 1 #}
 <section class="layer" id="layer-1">
-  {% set stats1 %}<b>{{ pages_total }}</b> pages → <b>{{ ef.documents|length }}</b> documents<br>{{ quotes_total }} cited quotes · {{ ef.corrections|length }} corrections{% endset %}
+  {% set stats1 %}<b>{{ pages_total }}</b> pages → <b>{{ ef.documents|length }}</b> documents<br>{{ quotes_total }} cited quotes · {{ ef.corrections|length + reviews|selectattr('action','equalto','correct')|list|length }} corrections{% if flags %} · <b>{{ flags|length }} to check</b>{% endif %}{% endset %}
   {{ layer_head(1, stats1) }}
   {{ lens(1) }}
 
@@ -52,6 +52,19 @@
       </div>
     </article>
   {% endfor %}
+  </div>
+
+  <h3 class="section-title" id="fact-review">Fact review</h3>
+  <div class="card">
+    {% if flags %}
+      <p class="small" style="margin-top:0"><b>{{ flags|length }} fact{{ 's' if flags|length != 1 }} to check.</b> An automatic check found a quote that doesn't back its fact. Flags never change a result; they ask a person to confirm or correct the fact on its page.</p>
+      <ul class="facts">{% for f in flags %}<li><span class="f">{{ f.doc_id }} · {{ f.field }}</span><a href="{{ page_url(ef.source_file, f.page, s.patient_key) }}#fact-{{ f.doc_id }}-{{ f.field }}">p.{{ f.page }}</a> {{ f.message }}</li>{% endfor %}</ul>
+    {% else %}<p class="small muted" style="margin:0">No open fact flags.</p>{% endif %}
+    {% if reviews %}
+      <h4 style="margin:12px 0 4px">Reviews recorded</h4>
+      <ul class="facts">{% for r in reviews|reverse %}<li><span class="f">{{ r.review_id }} · {{ r.doc_id }} · {{ r.field }}</span>{% if r.action == 'correct' %}<b>corrected</b> to <code>{{ r.value }}</code> (“{{ r.quote_text }}”, p.{{ r.quote_page }}){% else %}<b>confirmed</b>{% endif %} by {{ r.actor_name }} ({{ r.actor_role }}){% if r.reason %}: {{ r.reason }}{% endif %} <span class="muted">{{ r.recorded_at }}</span></li>{% endfor %}</ul>
+      <p class="disclose">Corrections are stored apart from the extraction. The facts above already include them; the source file is unchanged.</p>
+    {% endif %}
   </div>
 
   <h3 class="section-title">Identifiers as each page states them</h3>

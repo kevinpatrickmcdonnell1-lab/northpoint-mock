@@ -1,6 +1,7 @@
 """FastAPI + Jinja2 + HTMX UI (PLAN §8). Plain server-rendered pages, one CSS file."""
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 from datetime import date
@@ -14,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
+from app import fact_review as fr
 from app import handoffs, metrics, presenter
 from app.engine import evaluate
 from app.metrics import business_days
@@ -37,7 +39,8 @@ templates = Jinja2Templates(directory=HERE / "templates")
 STATUS_WORDS = {"S": "Supported", "NM": "Not met", "I": "Insufficient or conflicting", "NA": "Not applicable"}
 OWNER_TABS = [("all", "All", None), ("triage", "Clinical Triage", "Clinical Triage RN"),
               ("review", "Clinical Review", "Clinical Review RN"), ("intake", "Intake", "Intake Coordinator"),
-              ("auth", "Auth", "Auth Specialist"), ("ready", "Ready for scheduling", None)]
+              ("auth", "Auth", "Auth Specialist"), ("ready", "Ready for scheduling", None),
+              ("facts", "Fact review", None)]
 
 
 def page_url(file: str, page: int, case: Optional[str] = None, q: Optional[str] = None,
@@ -78,6 +81,8 @@ def corpus_stats(service: Service) -> dict:
         "documents": sum(len(ef.documents) for ef in efs),
         "quotes": sum(len(d.quotes) for ef in efs for d in ef.documents),
         "corrections": sum(len(ef.corrections) for ef in efs),
+        "reviews": len(service.store.reviews()),
+        "runtime_corrections": sum(r.action == "correct" for r in service.store.reviews()),
         "methods": sorted({ef.extraction_method for ef in efs}),
     }
 
@@ -135,7 +140,7 @@ def procedure(ef) -> str:
 
 
 def row(s, service: Service) -> dict:
-    ef = service.store.case(s.patient_key)
+    ef = service.case(s.patient_key)
     sent = handoffs.active_scheduling_handoff(service, s.patient_key) is not None
     return {
         "s": s, "name": patient_name(ef), "packet": ef.packet_id, "procedure": procedure(ef),
@@ -145,6 +150,7 @@ def row(s, service: Service) -> dict:
         "age": business_days(ef.received_at, service.policy.eval_date), "sent": sent,
         "site": ef.ordering_site or "(unknown)",
         "pages": len({p for d in ef.documents for p in d.pages}), "docs": len(ef.documents),
+        "flags": service.open_flags(s.patient_key),
     }
 
 
@@ -167,11 +173,14 @@ def queue(request: Request, owner: str = "all", site: str = "all", msg: Optional
             "clinical": sum(1 for r in rows if any(a.reason_code.startswith("CLIN_") for a in r["s"].actions))}
     corpus = corpus_stats(service)
     tab_counts = {k: (sum(r["s"].scheduling_sendable for r in rows) if k == "ready" else
+                      sum(bool(r["flags"]) for r in rows) if k == "facts" else
                       sum(any(a.owner_role == role_ for a in r["s"].actions) for r in rows) if role_ else len(rows))
                   for k, _, role_ in OWNER_TABS}
     role = dict((k, r) for k, _, r in OWNER_TABS).get(owner)
     if owner == "ready":
         rows = [r for r in rows if r["s"].scheduling_sendable]
+    elif owner == "facts":
+        rows = [r for r in rows if r["flags"]]
     elif role:
         rows = [r for r in rows if any(a.owner_role == role for a in r["s"].actions)]
     return templates.TemplateResponse(request, "queue.html", {
@@ -215,7 +224,7 @@ def case(request: Request, key: str, msg: Optional[str] = None, form: Optional[s
          at: Optional[str] = None):
     service = svc()
     try:
-        ef = service.store.case(key)
+        ef = service.case(key)
     except KeyError:
         raise HTTPException(404)
     events = service.store.events(key)
@@ -240,6 +249,7 @@ def case(request: Request, key: str, msg: Optional[str] = None, form: Optional[s
         "quotes_total": sum(len(d.quotes) for d in ef.documents),
         "clin_actions": clin, "admin_actions": admin, "change": last_change(service, key),
         "gate_map": {g.gate: g for g in s.gates},
+        "flags": service.open_flags(key), "reviews": service.store.reviews(key),
         "engine_run": service.engine_has_run()})
 
 
@@ -333,7 +343,7 @@ def case_for_page(service: Service, file: str, page: int, case: Optional[str]) -
 
 @app.get("/page/{file}/{page}")
 def page_viewer(request: Request, file: str, page: int, q: Optional[str] = None,
-                field: Optional[str] = None, case: Optional[str] = None):
+                field: Optional[str] = None, case: Optional[str] = None, msg: Optional[str] = None):
     txt = PAGES / file / f"{page}.txt"
     if "/" in file or ".." in file or not txt.exists():
         raise HTTPException(404, "Page not ingested. Run `make ingest`.")
@@ -348,15 +358,87 @@ def page_viewer(request: Request, file: str, page: int, q: Optional[str] = None,
     key = case_for_page(svc(), file, page, case)
     here = []
     if key:
-        ef = svc().store.case(key)
+        ef = svc().case(key)
+        reviews = svc().store.reviews(key)
+        flags = svc().flags(key)
+        open_ = svc().open_flags(key)
         for d in ef.documents:
             if page in d.pages:
                 here.append({"d": d, "unused": why_unused(d, svc().policy),
-                             "quotes": [x for x in d.quotes if x.page == page]})
+                             "quotes": [x for x in d.quotes if x.page == page],
+                             "rows": review_rows(d, page, flags, open_, reviews)})
     norm_q = " ".join(q.split()) if q else None
     return templates.TemplateResponse(request, "page.html", {
         "file": file, "page": page, "q": q, "text": text, "parts": parts, "key": key, "field": field,
-        "here": here, "norm_q": norm_q})
+        "here": here, "norm_q": norm_q, "msg": msg, "review_roles": fr.REVIEW_ROLES,
+        "clinical_roles": fr.CLINICAL_ROLES})
+
+
+def _form_value(v) -> str:
+    """A fact value as the correction box shows it (and parse_value reads it back)."""
+    if v is None:
+        return ""
+    if isinstance(v, (bool, list, dict)):
+        return json.dumps(v)
+    return str(v)
+
+
+def review_rows(d, page: int, flags, open_, reviews) -> list[dict]:
+    """One row per fact a reviewer can check on this page: every field quoted here, plus any
+    flagged field of this document, plus its date and signer."""
+    order = [x.field for x in d.quotes if x.page == page] + [f.field for f in flags if f.doc_id == d.doc_id]
+    order += [f for f in ("date", "signer") if f not in order and fr.current_value(d, f) is not None]
+    rows = []
+    for f in dict.fromkeys(order):
+        correctable = f in fr.correctable_fields(d.doc_type)
+        rows.append({
+            "field": f, "quotes": [x for x in d.quotes if x.field == f],
+            "value": fr.current_value(d, f) if correctable else None,
+            "form_value": _form_value(fr.current_value(d, f)) if correctable else "",
+            "correctable": correctable, "identifier": f in fr.IDENTIFIER_FIELDS,
+            "clinical": fr.is_clinical(f),
+            "flags": [x for x in open_ if x.doc_id == d.doc_id and x.field == f],
+            "last": fr.latest_review(reviews, d.doc_id, f),
+        })
+    return rows
+
+
+@app.post("/case/{key}/fact-review")
+async def fact_review(key: str, request: Request):
+    form = dict((await request.form()).items())
+    back_file, back_page = form.get("back_file", ""), form.get("back_page", "")
+    try:
+        page = int(form.get("quote_page") or back_page or 0)
+    except ValueError:
+        page = 0
+    with svc().lock:
+        try:
+            ef = svc().store.case(key)
+        except KeyError:
+            raise HTTPException(404)
+        back = page_url(back_file or ef.source_file, int(back_page or page or 1), key)
+        recalls_before = {o["handoff_id"] for o in svc().store.outbox(key)
+                          if o["work_item"]["type"] == handoffs.RECALL_TYPE}
+        try:
+            r = svc().review_fact(
+                key, form.get("doc_id", ""), form.get("field", ""), form.get("action", ""),
+                actor_role=form.get("actor_role", ""), actor_name=form.get("actor_name", ""),
+                reason=form.get("reason"), value=form.get("value"),
+                quote_text=form.get("quote_text"), quote_page=page or None)
+        except ValueError as e:
+            return go(back, f"Not recorded: {e}")
+        except sqlite3.IntegrityError:
+            return go(back, CONCURRENT_WRITE)
+        new_recalls = [o["handoff_id"] for o in svc().store.outbox(key)
+                       if o["work_item"]["type"] == handoffs.RECALL_TYPE and o["handoff_id"] not in recalls_before]
+    if r.action == "confirm":
+        return go(back, f"{r.review_id}: {r.field} on {r.doc_id} confirmed by {r.actor_name} "
+                        f"({r.actor_role}). No fact changed.")
+    recalled = (f" Case is no longer sendable: scheduling handoff recalled automatically "
+                f"({', '.join(new_recalls)}).") if new_recalls else ""
+    return go(back, f"{r.review_id}: {r.field} on {r.doc_id} corrected to {_short(r.value)} by "
+                    f"{r.actor_name} ({r.actor_role}). The source extraction is unchanged; the case "
+                    f"was re-evaluated on the corrected facts and audited.{recalled}")
 
 
 @app.get("/pages/{file}/{page}.png")
