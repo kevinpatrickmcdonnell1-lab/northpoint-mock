@@ -194,6 +194,49 @@ class Service:
             recall_if_needed(self, key)
         return r
 
+    # ---- work-item claims ---------------------------------------------------------
+    def claim_holder(self, key: str, code: str) -> Optional[dict]:
+        """Who is working this item now: the latest claim or takeover, unless released since."""
+        holder = None
+        for c in self.store.claims(key):
+            if c["code"] == code:
+                holder = None if c["action"] == "release" else c
+        return holder
+
+    def holders(self) -> dict[tuple[str, str], dict]:
+        out: dict[tuple[str, str], dict] = {}
+        for c in self.store.claims():
+            k = (c["patient_key"], c["code"])
+            if c["action"] == "release":
+                out.pop(k, None)
+            else:
+                out[k] = c
+        return out
+
+    def claim(self, key: str, code: str, actor_role: str, actor_name: str, *, takeover: bool = False,
+              release: bool = False, note: Optional[str] = None) -> str:
+        """Claim, take over or release a work item. Raises ValueError (nothing recorded) when
+        someone else holds it, a takeover has no reason, or a non-holder tries to release."""
+        h = self.claim_holder(key, code)
+        mine = h is not None and h["actor_name"] == actor_name and h["actor_role"] == actor_role
+        note = (note or "").strip() or None
+        if release:
+            if not mine:
+                raise ValueError("only the person holding an item can release it.")
+            action = "release"
+        elif h is None or mine:
+            if mine:
+                return "claim"          # already yours: nothing new to record
+            action = "claim"
+        elif not takeover:
+            raise ValueError(f"claimed by {h['actor_name']} ({h['actor_role']}) at {h['at']}.")
+        elif not note:
+            raise ValueError("taking over someone's item needs a reason.")
+        else:
+            action = "takeover"
+        self.store.add_claim(key, code, action, actor_role, actor_name, wall_clock(), note)
+        return action
+
     # ---- simulated events (explicit action only) ------------------------------
     def next_event_time(self) -> datetime:
         start = datetime.fromisoformat(self.workflow.sim_clock_start)

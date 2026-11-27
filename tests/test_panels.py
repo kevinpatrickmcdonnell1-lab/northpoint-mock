@@ -155,7 +155,7 @@ def test_work_list_links_to_panels_and_case_for_the_rest(client):
     work = client.get("/work").text
     assert 'href="/work/P04/ID_CONFLICT"' in work and 'href="/work/P09/COV_PENDING_PRODUCT"' in work
     act_as(client, "auth")
-    assert 'href="/case/P01#handoffs"' in client.get("/work").text   # Auth panels come in step 3
+    assert 'href="/work/P01/PA_READY"' in client.get("/work").text   # Auth panels arrived in step 3
 
 
 def test_wrong_op_for_item_refused(client, svc):

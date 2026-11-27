@@ -15,7 +15,12 @@ KINDS = {
     "identity_task": ("identity_verification_task", "Epic intake WQ (MOCK STUB)", "ID"),
     "triage": ("urgent_triage_notification", "Epic In Basket (MOCK STUB)", "TRIAGE"),
     "missing_info": ("missing_info_request", "Fax/Comms (MOCK STUB)", "INFO"),
+    # Not met / payer denied: back to the ordering clinician. Not a payer denial (invariant 8).
+    "clinician_review": ("clinician_review_request", "Fax/Comms (MOCK STUB)", "REVIEW"),
 }
+REVIEW_CODES = {"EVID_NOT_MET", "PA_DENIED"}
+NOT_A_DENIAL = ("Not met means the packet does not yet show what the policy asks for. "
+                "It is not a payer denial.")
 SCHED_TYPE = KINDS["schedule"][0]
 RECALL_TYPE = "scheduling_recall"
 PA_PREP_GATES = ("G-ID", "G-COV", "G-PAREQ", "G-EVID")
@@ -91,6 +96,19 @@ def send(svc: Service, key: str, kind: str, actor: str = "UI user") -> dict[str,
                     sources=[{"file": r.file, "page": r.page, "quote": r.quote}
                              for r in s.priority.evidence_refs],
                     note="Clinical routing is never gated by admin status.")
+    elif kind == "clinician_review":
+        codes = [a.reason_code for a in s.actions if a.reason_code in REVIEW_CODES]
+        if not codes:
+            return {"result": "not_applicable", "reason": "Nothing is not met or denied on this case."}
+        denial = next((e for e in reversed(events) if e.type == "PAYER_PA_DECISION"
+                       and e.decision == "denied"), None)
+        item.update(reason_codes=codes, statement=NOT_A_DENIAL,
+                    not_met={k: {"reason": v.reason_text,
+                                 "sources": [{"file": r.file, "page": r.page, "quote": r.quote}
+                                             for r in v.evidence_refs]}
+                             for k, v in s.criteria.items() if k != "EVIDENCE" and v.status == "NM"},
+                    payer_denial=({"event_id": denial.event_id, "note": denial.note, "simulated": True}
+                                  if denial and "PA_DENIED" in codes else None))
     elif kind == "missing_info":
         req = [a for a in s.actions if a.reason_code in MISSING_CODES]
         if not req:
@@ -268,4 +286,4 @@ def set_outage(svc: Service, receiving_system: str, down: bool, actor: str = "UI
                     {"receiving_system": receiving_system, "down": down, "simulated": True})
 
 
-RECEIVERS = [v[1] for v in KINDS.values()]
+RECEIVERS = list(dict.fromkeys(v[1] for v in KINDS.values()))   # each receiving system once

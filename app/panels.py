@@ -31,7 +31,21 @@ def kind(code: str) -> Optional[str]:
         return "coverage"
     if code in handoffs.MISSING_CODES:
         return "request"
+    if code in ("PA_READY", "PA_AWAITING"):
+        return "pa"
+    if code in handoffs.REVIEW_CODES:
+        return "not_met"
+    if code == "SCHED_READY":
+        return "schedule"
     return None
+
+
+# What each panel kind may record (the form's `op`).
+OPS = {"clinical": {"decide"}, "identity": {"identity"}, "coverage": {"benefits"},
+       "request": {"request"}, "pa": {"pa_packet", "payer"}, "not_met": {"clinician_review"},
+       "schedule": {"schedule"}}
+PAYER_DECISIONS = [("approved", "Approved"), ("pended", "Pended (payer asked for more)"),
+                   ("denied", "Denied")]
 
 
 def requests_sent(svc, key: str) -> list[dict]:
@@ -39,13 +53,30 @@ def requests_sent(svc, key: str) -> list[dict]:
     return [o for o in svc.store.outbox(key) if o["work_item"]["type"] == work_type]
 
 
+def _sent(svc, key: str, handoff_kind: str) -> list[dict]:
+    work_type = handoffs.KINDS[handoff_kind][0]
+    return [o for o in svc.store.outbox(key) if o["work_item"]["type"] == work_type]
+
+
 def waiting_on(svc, key: str, code: str) -> Optional[str]:
-    """The handoff an item is waiting on: a missing-info request that already asked for it."""
-    if kind(code) != "request":
-        return None
-    for o in reversed(requests_sent(svc, key)):
-        if any(r["reason_code"] == code for r in o["work_item"].get("requests", [])):
-            return o["handoff_id"]
+    """The handoff an item is waiting on, if the persona's part is done: a request that named
+    it, a PA packet with no payer decision yet, a clinician review, or an active scheduling
+    handoff. The engine never reads the outbox, so the reason code itself stays the same."""
+    k = kind(code)
+    if k == "request":
+        for o in reversed(requests_sent(svc, key)):
+            if any(r["reason_code"] == code for r in o["work_item"].get("requests", [])):
+                return o["handoff_id"]
+    elif k == "not_met":
+        for o in reversed(_sent(svc, key, "clinician_review")):
+            if code in o["work_item"].get("reason_codes", []):
+                return o["handoff_id"]
+    elif code == "PA_READY":
+        sent = _sent(svc, key, "pa_packet")
+        return sent[-1]["handoff_id"] if sent else None
+    elif k == "schedule":
+        active = handoffs.active_scheduling_handoff(svc, key)
+        return active["handoff_id"] if active else None
     return None
 
 
@@ -106,6 +137,30 @@ def request(s: CaseState, ef: ExtractionFile, svc) -> dict[str, Any]:
     return {"requests": reqs, "to": to, "sent": requests_sent(svc, s.patient_key)}
 
 
+def criteria(s: CaseState, only: Optional[str] = None) -> list[dict[str, Any]]:
+    return [{"rule": k, "r": v} for k, v in s.criteria.items()
+            if k != "EVIDENCE" and v.status != "NA" and (only is None or v.status == only)]
+
+
+def pa(s: CaseState, svc) -> dict[str, Any]:
+    events = [e for e in svc.store.events(s.patient_key) if e.type == "PAYER_PA_DECISION"]
+    return {"criteria": criteria(s), "packets": _sent(svc, s.patient_key, "pa_packet"),
+            "payer_events": events, "decisions": PAYER_DECISIONS}
+
+
+def not_met(s: CaseState, svc) -> dict[str, Any]:
+    denial = next((e for e in reversed(svc.store.events(s.patient_key))
+                   if e.type == "PAYER_PA_DECISION" and e.decision == "denied"), None)
+    return {"criteria": criteria(s, "NM"), "denial": denial, "statement": handoffs.NOT_A_DENIAL,
+            "sent": _sent(svc, s.patient_key, "clinician_review")}
+
+
+def schedule(s: CaseState, svc) -> dict[str, Any]:
+    return {"gates": s.gates, "events": svc.store.events(s.patient_key),
+            "corrections": [r for r in svc.store.reviews(s.patient_key) if r.action == "correct"],
+            "active": handoffs.active_scheduling_handoff(svc, s.patient_key)}
+
+
 def build(code: str, s: CaseState, ef: ExtractionFile, svc) -> dict[str, Any]:
     k = kind(code)
     ctx: dict[str, Any] = {"kind": k}
@@ -117,4 +172,10 @@ def build(code: str, s: CaseState, ef: ExtractionFile, svc) -> dict[str, Any]:
         ctx.update(coverage(s, ef))
     elif k == "request":
         ctx.update(request(s, ef, svc))
+    elif k == "pa":
+        ctx.update(pa(s, svc))
+    elif k == "not_met":
+        ctx.update(not_met(s, svc))
+    elif k == "schedule":
+        ctx.update(schedule(s, svc))
     return ctx

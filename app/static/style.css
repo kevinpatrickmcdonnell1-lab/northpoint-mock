@@ -328,3 +328,16 @@ details summary { cursor:pointer; margin-top:8px; }
 .src .q .f { font-family:var(--mono); font-size:10.5px; color:var(--earth); display:block; }
 .id-field h4 { margin:14px 0 2px; }
 @media (max-width: 860px) { .panel-grid { grid-template-columns:1fr; } .panel-decide { position:static; } .panel-head { flex-direction:column; } }
+
+/* Audit timeline */
+.replay.ok { border-left:3px solid var(--ok); } .replay.bad { border-left:3px solid var(--bad); background:var(--badbg); }
+.timeline { list-style:none; padding:0; margin:0; border-left:2px solid var(--line-2); }
+.timeline li { display:grid; grid-template-columns:150px 200px 220px 1fr; gap:10px; padding:8px 12px; border-bottom:1px dashed var(--line-2); position:relative; }
+.timeline li::before { content:""; position:absolute; left:-6px; top:13px; width:10px; height:10px; border-radius:50%; background:var(--line-2); }
+.timeline li.tl-sim_event::before, .timeline li.tl-correction::before { background:var(--warn); }
+.timeline li.tl-handoff_sent::before { background:var(--ok); } .timeline li.tl-handoff_blocked::before { background:var(--bad); }
+.tl-detail { color:var(--muted); overflow-wrap:anywhere; }
+@media (max-width: 860px) { .timeline li { grid-template-columns:1fr; gap:2px; } }
+.claim-bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding-bottom:10px; margin-bottom:10px; border-bottom:1px dashed var(--line-2); }
+.claim-bar form { display:inline; }
+.claim-bar label { margin:4px 0; }

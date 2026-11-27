@@ -37,12 +37,17 @@ CREATE TABLE IF NOT EXISTS fact_reviews (
   seq INTEGER PRIMARY KEY AUTOINCREMENT, review_id TEXT UNIQUE NOT NULL, patient_key TEXT NOT NULL,
   doc_id TEXT NOT NULL, field TEXT NOT NULL, action TEXT NOT NULL CHECK (action IN ('confirm','correct')),
   review_json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS claims (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT, patient_key TEXT NOT NULL, code TEXT NOT NULL,
+  action TEXT NOT NULL CHECK (action IN ('claim','takeover','release')),
+  actor_role TEXT NOT NULL, actor_name TEXT NOT NULL, note TEXT, at TEXT NOT NULL,
+  after_audit_id INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS receiver_outages (
   seq INTEGER PRIMARY KEY AUTOINCREMENT, receiving_system TEXT NOT NULL, down INTEGER NOT NULL,
   at TEXT NOT NULL, note TEXT, simulated INTEGER NOT NULL CHECK (simulated = 1));
 """
 for _t in ("cases", "sim_events", "audit_log", "outbox", "deliveries", "receiver_outages",
-           "fact_reviews"):
+           "fact_reviews", "claims"):
     SCHEMA += f"""
 CREATE TRIGGER IF NOT EXISTS {_t}_no_update BEFORE UPDATE ON {_t}
   BEGIN SELECT RAISE(ABORT, '{_t} is append-only'); END;
@@ -107,6 +112,20 @@ class Store:
 
     def review_count(self) -> int:
         return self.db.execute("SELECT COUNT(*) FROM fact_reviews").fetchone()[0]
+
+    # ---- work-item claims (append-only; the current holder is derived) -----------
+    def add_claim(self, key: str, code: str, action: str, actor_role: str, actor_name: str,
+                  at: str, note: Optional[str] = None) -> None:
+        last = self.db.execute("SELECT COALESCE(MAX(audit_id), 0) FROM audit_log").fetchone()[0]
+        self.db.execute("INSERT INTO claims (patient_key, code, action, actor_role, actor_name, note, at, "
+                        "after_audit_id) VALUES (?,?,?,?,?,?,?,?)",
+                        (key, code, action, actor_role, actor_name, note, at, last))
+
+    def claims(self, key: Optional[str] = None) -> list[dict]:
+        q, args = "SELECT * FROM claims", ()
+        if key:
+            q, args = q + " WHERE patient_key=?", (key,)
+        return [dict(r) for r in self.db.execute(q + " ORDER BY seq", args)]
 
     # ---- audit (append-only) --------------------------------------------------
     def audit(self, key: Optional[str], at: str, actor: str, kind: str, detail: dict[str, Any]) -> None:

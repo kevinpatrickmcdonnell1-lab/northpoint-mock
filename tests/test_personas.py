@@ -179,3 +179,15 @@ def test_fact_flags_routed_by_kind(tmp_path):
     finally:
         del app.state.svc
         s.store.close()
+
+
+def test_clinical_case_page_hides_plan_and_coverage_but_keeps_every_hold(client):
+    act_as(client, "triage")
+    page = client.get("/case/P03").text
+    assert "Coverage (COV-1)" not in page and "Plan &amp; PA requirement" not in page
+    assert "never affect clinical priority" in page
+    assert "G-COV" in page                                        # holds still shown (invariant 6)
+    act_as(client, "intake")
+    assert "Coverage (COV-1)" in client.get("/case/P03").text
+    client.post("/persona", data={"persona": ""})
+    assert "Coverage (COV-1)" in client.get("/case/P03").text   # presenter sees everything

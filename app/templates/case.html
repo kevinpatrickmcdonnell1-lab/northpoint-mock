@@ -5,9 +5,9 @@
 {% set failing = s.gates|rejectattr('passed')|map(attribute='gate')|list %}
 
 <section class="case-head">
-  <div class="crumbs"><a href="/">Queue</a> / {{ s.patient_key }}</div>
+  <div class="crumbs"><a href="/">Queue</a> / {{ s.patient_key }} · <a href="/case/{{ s.patient_key }}/timeline">Audit timeline →</a></div>
   <h1>{{ name }} <span class="key">{{ s.patient_key }} · {{ ef.packet_id }}</span></h1>
-  <p class="meta">{{ procedure }} · received {{ ef.received_at }} via {{ ef.received_channel|replace('_',' ') }} · site {{ ef.ordering_site or 'not stated' }} · age {{ age }} business days{% if engine_run %} · {{ s.plan.detail.product or 'plan unresolved' }}{% endif %}</p>
+  <p class="meta">{{ procedure }} · received {{ ef.received_at }} via {{ ef.received_channel|replace('_',' ') }} · site {{ ef.ordering_site or 'not stated' }} · age {{ age }} business days{% if engine_run and not (persona_of(request) and persona_of(request).clinical) %} · {{ s.plan.detail.product or 'plan unresolved' }}{% endif %}</p>
   {% if engine_run %}
   <div class="statusbar">
     <div class="it"><span>Clinical priority</span>{{ pri(s.priority.status, s.priority.detail.label) }}</div>
@@ -100,6 +100,8 @@
   {{ lens(2) }}
 
   <div class="grid g3">
+    {% set clin_view = persona_of(request) and persona_of(request).clinical %}
+    {% if clin_view %}<div class="card"><h3>Plan &amp; coverage</h3><p class="small muted">Hidden for clinical roles: payer, coverage and PA never affect clinical priority. The holds below still show every gate.</p></div>{% else %}
     <div class="card">
       <h3>Plan &amp; PA requirement</h3>
       <p>{{ st(s.pa_requirement) }} {% if s.plan.detail.plan_id %}<code>{{ s.plan.detail.plan_id }}</code>{% endif %}{% for x in s.plan.detail.extra or [] %} <span class="tag">+ {{ x }}</span>{% endfor %}</p>
@@ -107,6 +109,7 @@
       <p class="small">{{ s.plan.reason_text }}</p>
       {% if s.plan.status == 'unknown' %}<p class="small muted">Product is never inferred from a member-ID prefix.</p>{% endif %}
     </div>
+    {% endif %}
     <div class="card">
       <h3>Identity (ID-1)</h3>
       <p>{{ st(s.identity.status) }}</p>
@@ -122,6 +125,7 @@
         <div class="recall id-warning">⚠ Confirmed {{ x.field }} <b class="mono">{{ x.value }}</b> (Epic ref {{ x.epic_reference }}, <span class="sim-badge">SIMULATED</span> {{ x.event_id }}) is not found in packet: it matches no value on any page. Accepted because Epic is the authority; check it was keyed correctly.</div>
       {% endfor %}
     </div>
+    {% if not clin_view %}
     <div class="card">
       <h3>Coverage (COV-1)</h3>
       <p>{{ st(s.coverage.status) }} {% if s.coverage.reason_code %}<code>{{ s.coverage.reason_code }}</code>{% endif %}</p>
@@ -129,6 +133,7 @@
       <p class="small">{% for r in s.coverage.evidence_refs %}{{ ref_link(r, s.patient_key) }} {% endfor %}</p>
       <p class="small muted">Only a dated benefits response for the exact product, inside the 30-day window, can verify coverage. A card or face sheet cannot.</p>
     </div>
+    {% endif %}
   </div>
 
   <div class="lanes">
@@ -214,7 +219,7 @@
       <h3>Handoffs · Epic and payer stubs</h3>
       <div class="buttons">
         {% set me = persona_of(request) %}
-        {% for kind, text, cls in [('schedule','Send to scheduling','green'), ('pa_packet','Prepare PA packet','secondary'), ('missing_info','Send missing-info request','secondary'), ('triage','Notify triage','secondary'), ('identity_task','Identity verification task','secondary')] %}
+        {% for kind, text, cls in [('schedule','Send to scheduling','green'), ('pa_packet','Prepare PA packet','secondary'), ('missing_info','Send missing-info request','secondary'), ('triage','Notify triage','secondary'), ('identity_task','Identity verification task','secondary'), ('clinician_review','Send for clinician review','secondary')] %}
         {% if may_send(me, kind) %}<form method="post" action="/case/{{ s.patient_key }}/handoff/{{ kind }}"><button class="{{ cls }}">{{ text }}</button></form>{% endif %}
         {% endfor %}
       </div>

@@ -17,7 +17,7 @@ from pydantic import ValidationError
 
 from app import fact_review as fr
 from app import handoffs, metrics, panels, personas, presenter
-from app.engine import evaluate
+from app.engine import evaluate, state_hash
 from app.metrics import business_days
 from app.pdfs import PAGES, TITLES
 from app.rules.common import why_unused
@@ -397,6 +397,7 @@ def work_items(service: Service, p: personas.Persona) -> list[dict]:
     """The persona's open items: one per (case, next action) they own, plus fact flags of the
     kind they review. Sorted urgent → undetermined → expedited → routine, then oldest first."""
     items = []
+    holders = service.holders()
     for s in service.states():
         ef = service.case(s.patient_key)
         base = {"s": s, "key": s.patient_key, "name": patient_name(ef),
@@ -410,6 +411,7 @@ def work_items(service: Service, p: personas.Persona) -> list[dict]:
                           "owner": a.owner_role, "others": others,
                           "primary": personas.PRIMARY_HANDOFF.get(code),
                           "waiting": panels.waiting_on(service, s.patient_key, code),
+                          "claim": _claim_view(holders.get((s.patient_key, code)), p),
                           "href": (f"/work/{s.patient_key}/{code}" if panels.kind(code)
                                    else f"/case/{s.patient_key}#{_anchor(code)}")})
         if p.fact_flags:
@@ -417,7 +419,7 @@ def work_items(service: Service, p: personas.Persona) -> list[dict]:
                 if fr.is_clinical(f.field) == (p.fact_flags == "clinical"):
                     items.append({**base, "code": f"FACT_{f.field}", "title": f"Check {f.field} on {f.doc_id}",
                                   "detail": f.message, "owner": p.role, "others": others, "primary": None,
-                                  "waiting": None,
+                                  "waiting": None, "claim": None,
                                   "href": page_url(ef.source_file, f.page, s.patient_key) + f"#fact-{f.doc_id}-{f.field}"})
     return sorted(items, key=lambda i: (i["rank"], -i["age"], i["key"], i["code"]))
 
@@ -430,14 +432,25 @@ def my_work(request: Request, msg: Optional[str] = None):
     service = svc()
     run = service.engine_has_run()
     items = work_items(service, p) if run and not p.read_only else []
+    recalls = ([o for o in service.store.outbox() if o["work_item"]["type"] == handoffs.RECALL_TYPE]
+               if p.role == "Scheduler" else [])
     return templates.TemplateResponse(request, "work.html", {
         "p": p, "items": [i for i in items if not i["waiting"]],
-        "waiting": [i for i in items if i["waiting"]], "msg": msg, "engine_run": run})
+        "waiting": [i for i in items if i["waiting"]], "recalls": recalls, "msg": msg, "engine_run": run})
+
+
+def _claim_view(c: Optional[dict], p: personas.Persona) -> Optional[dict]:
+    if c is None:
+        return None
+    mine = (c["actor_name"], c["actor_role"]) == (p.name, p.role)
+    return {**c, "mine": mine, "label": f"{c['actor_name']} ({c['actor_role']})"}
 
 
 def _next_url(service: Service, p: personas.Persona, done: tuple[str, str]) -> str:
-    """The persona's next active item, preferring another case over the one just handled."""
-    items = [i for i in work_items(service, p) if not i["waiting"] and (i["key"], i["code"]) != done]
+    """The persona's next active item, preferring another case over the one just handled, and
+    never an item someone else has claimed."""
+    items = [i for i in work_items(service, p) if not i["waiting"] and (i["key"], i["code"]) != done
+             and not (i["claim"] and not i["claim"]["mine"])]
     other = [i for i in items if i["key"] != done[0]]
     nxt = (other or items or [None])[0]
     return nxt["href"] if nxt else "/work"
@@ -468,7 +481,8 @@ def work_panel(request: Request, key: str, code: str, msg: Optional[str] = None)
         "products": [pl.product for pl in service.policy.plans.values()]})
 
 
-OPS = {"clinical": "decide", "identity": "identity", "coverage": "benefits", "request": "request"}
+HANDOFF_OPS = {"request": "missing_info", "pa_packet": "pa_packet", "clinician_review": "clinician_review",
+               "schedule": "schedule"}
 
 
 @app.post("/work/{key}/{code}")
@@ -484,7 +498,11 @@ async def work_act(request: Request, key: str, code: str):
         if item is None:
             return go("/work", f"Not recorded: {key} {code} is not on your list ({p.role}).")
         k, op = panels.kind(code), form.get("op", "")
-        if k is None or OPS[k] != op:
+        if item["claim"] and not item["claim"]["mine"]:
+            c = item["claim"]
+            return go(here, f"Not recorded: claimed by {c['label']} at {c['at']}. Take it over "
+                            "(with a reason) to act on it.")
+        if k is None or op not in panels.OPS[k]:
             return go(here, f"Not recorded: “{op or 'nothing'}” doesn't settle {code}.")
         note = (form.get("note") or "").strip()
         try:
@@ -519,14 +537,30 @@ async def work_act(request: Request, key: str, code: str):
                                       actor_role=personas.EVENT_ACTOR_ROLE["BENEFITS_RESPONSE"],
                                       actor_name=p.name, note=note or None, benefits=b)
                 done = f"{ev.event_id}: E&B response logged for {key} by {personas.label(p)}."
-            else:  # request
-                if not personas.may_send(p, "missing_info"):
-                    return go(here, f"Not recorded: {p.role} doesn't send document requests.")
-                r = handoffs.send(service, key, "missing_info", actor=personas.label(p))
-                if r["result"] not in ("sent", "already_recorded"):
-                    return go(here, f"Not recorded: {r.get('reason') or r['result']}")
-                done = (f"{r['handoff_id']}: request for {key} sent by {personas.label(p)}."
-                        if r["result"] == "sent" else f"Already sent as {r['handoff_id']}.")
+            elif op == "payer":
+                decision = form.get("decision", "")
+                if decision not in dict(panels.PAYER_DECISIONS):
+                    return go(here, "Not recorded: choose the payer's decision.")
+                if not note:
+                    return go(here, "Not recorded: a payer decision needs the payer reference "
+                                    "(portal or fax reference) in the note.")
+                if not personas.may_record(p, "PAYER_PA_DECISION"):
+                    return go(here, f"Not recorded: {p.role} doesn't record payer decisions.")
+                ev = service.simulate(key, "PAYER_PA_DECISION", decision, actor_role=p.role,
+                                      actor_name=p.name, note=note)
+                done = f"{ev.event_id}: payer {decision} recorded for {key} by {personas.label(p)}."
+            else:  # a handoff does the job
+                hk = HANDOFF_OPS[op]
+                if not personas.may_send(p, hk):
+                    return go(here, f"Not recorded: {p.role} doesn't send {handoffs.KINDS[hk][0]}.")
+                r = handoffs.send(service, key, hk, actor=personas.label(p))
+                if r["result"] == "blocked":
+                    return go(here, f"BLOCKED: failing gates {', '.join(r.get('failing_gates', []))}. "
+                                    "Attempt recorded in the audit trail.")
+                if r["result"] == "not_applicable":
+                    return go(here, f"Not recorded: {r.get('reason')}")
+                done = (f"{r['handoff_id']}: {handoffs.KINDS[hk][0]} for {key} sent by {personas.label(p)}."
+                        if r["result"] == "sent" else f"Already sent as {r['handoff_id']}; nothing new recorded.")
         except (ValidationError, ValueError) as e:
             msg = e.errors()[0]["msg"] if isinstance(e, ValidationError) else str(e)
             return go(here, f"Not recorded: {msg}")
@@ -534,6 +568,127 @@ async def work_act(request: Request, key: str, code: str):
             return go(here, CONCURRENT_WRITE)
         nxt = _next_url(service, p, (key, code))
     return go(nxt, done + ("" if nxt != "/work" else " Your list is clear."))
+
+
+@app.post("/work/{key}/{code}/{what}")
+async def work_claim(request: Request, key: str, code: str, what: str):
+    if what not in ("claim", "release"):
+        raise HTTPException(404)
+    p = persona_of(request)
+    if p is None:
+        return go(f"/case/{key}", "Choose who you are (top right) to claim work.")
+    form = dict((await request.form()).items())
+    here = f"/work/{key}/{code}"
+    service = svc()
+    with service.lock:
+        item = _find_item(service, p, key, code) if service.engine_has_run() else None
+        if item is None:
+            return go("/work", f"Not recorded: {key} {code} is not on your list ({p.role}).")
+        try:
+            action = service.claim(key, code, p.role, p.name, takeover=bool(form.get("takeover")),
+                                   release=what == "release", note=form.get("note"))
+        except ValueError as e:
+            return go(here, f"Not recorded: {e}")
+    words = {"claim": "Claimed", "takeover": "Taken over", "release": "Released"}[action]
+    return go(here, f"{words}: {key} {code} by {personas.label(p)}.")
+
+
+# ---------------------------------------------------------------- auditor: case timeline
+
+TIMELINE_LABELS = {
+    "loaded": "Packet loaded", "evaluation": "Engine evaluated", "state_change": "State changed",
+    "sim_event": "Human decision (SIMULATED)", "correction": "Fact review",
+    "handoff_attempt": "Handoff attempted", "handoff_sent": "Handoff sent",
+    "handoff_blocked": "Handoff blocked", "delivery_attempt": "Delivery attempt",
+    "dead_letter": "Dead letter", "outage": "Receiver outage (SIMULATED)",
+    "claim": "Item claimed", "takeover": "Item taken over", "release": "Item released",
+}
+
+
+def _timeline_summary(kind: str, d: dict) -> str:
+    if kind == "evaluation":
+        fg = d.get("failing_gates") or []
+        return (f"{d.get('priority')} · identity {d.get('identity')} · coverage {d.get('coverage')} · "
+                f"{'holds ' + ', '.join(fg) if fg else 'no holds'} · state {d.get('state_hash')}")
+    if kind == "state_change":
+        return "; ".join(f"{x['label']}: {x['from']} → {x['to']}" for x in format_diff(d.get("diff", {})))
+    if kind == "sim_event":
+        return f"{d.get('event_id')} {d.get('type')} {d.get('decision')}" + (f": {d['note']}" if d.get("note") else "")
+    if kind == "correction":
+        if d.get("action") == "correct":
+            return (f"{d.get('review_id')} corrected {d.get('doc_id')}.{d.get('field')}: {d.get('before')} → "
+                    f"{d.get('after')} (“{d.get('quote_text')}”, p.{d.get('quote_page')}): {d.get('reason')}")
+        return f"{d.get('review_id')} confirmed {d.get('doc_id')}.{d.get('field')}" + (f": {d['reason']}" if d.get("reason") else "")
+    if kind in ("handoff_sent", "handoff_attempt", "handoff_blocked"):
+        bits = [d.get("handoff_id"), d.get("kind")]
+        if d.get("failing_gates"):
+            bits.append("failing " + ", ".join(d["failing_gates"]))
+        if d.get("reason"):
+            bits.append(d["reason"])
+        return " · ".join(str(b) for b in bits if b)
+    return ", ".join(f"{k}={v}" for k, v in d.items() if not isinstance(v, (dict, list)))[:240]
+
+
+def replay(service: Service, key: str) -> dict:
+    """Recompute the case from source facts + reviews + events + config and compare with the
+    last audited evaluation. A mismatch means config or code changed since it was recorded."""
+    last = service.store.last_evaluation(key)
+    if last is None:
+        return {"matches": None, "text": "Not evaluated yet: nothing to replay."}
+    now = state_hash(service.state(key))
+    ok = now == last.get("state_hash")
+    return {"matches": ok, "recorded": last.get("state_hash"), "recomputed": now,
+            "recorded_config": last.get("config_sha256"), "current_config": service.config_sha256,
+            "text": ("Replay matches the last audited evaluation." if ok else
+                     "Replay does not match the last audited evaluation: config or code changed since "
+                     "it was recorded. Re-run the engine to record the current state.")}
+
+
+def timeline(service: Service, key: str) -> list[dict]:
+    row = service.store.db.execute("SELECT loaded_at, source_file FROM cases WHERE patient_key=?", (key,)).fetchone()
+    out = [{"n": 0, "kind": "loaded", "at": row[0], "actor": "system (ingest)",
+            "summary": f"Extracted facts loaded from {row[1]}", "detail": {}, "_order": (-1, 0, 0)}]
+    for r in reversed(service.store.audit_rows(key)):          # oldest first
+        out.append({"n": r["audit_id"], "kind": r["kind"], "at": r["at"], "actor": r["actor"],
+                    "summary": _timeline_summary(r["kind"], r["detail"]), "detail": r["detail"],
+                    "_order": (r["audit_id"], 0, 0)})
+    for c in service.store.claims(key):    # placed right after the audit row they followed
+        out.append({"n": None, "kind": c["action"], "at": c["at"],
+                    "actor": f"{c['actor_name']} ({c['actor_role']})",
+                    "summary": c["code"] + (f": {c['note']}" if c["note"] else ""),
+                    "detail": {"code": c["code"], "note": c["note"]},
+                    "_order": (c["after_audit_id"], 1, c["seq"])})
+    out.sort(key=lambda e: e["_order"])
+    for e in out:
+        del e["_order"]
+    return out
+
+
+@app.get("/case/{key}/timeline")
+def case_timeline(request: Request, key: str, kind: str = "all"):
+    service = svc()
+    try:
+        ef = service.store.case(key)
+    except KeyError:
+        raise HTTPException(404)
+    entries = timeline(service, key)
+    kinds = sorted({e["kind"] for e in entries})
+    shown = entries if kind == "all" else [e for e in entries if e["kind"] == kind]
+    return templates.TemplateResponse(request, "timeline.html", {
+        "key": key, "name": patient_name(ef), "entries": shown, "total": len(entries), "kinds": kinds,
+        "kind": kind, "labels": TIMELINE_LABELS, "replay": replay(service, key),
+        "reviews": service.store.reviews(key)})
+
+
+@app.get("/case/{key}/timeline.json")
+def case_timeline_json(key: str):
+    service = svc()
+    try:
+        service.store.case(key)
+    except KeyError:
+        raise HTTPException(404)
+    return JSONResponse({"patient_key": key, "label": "SYNTHETIC – MOCK DATA",
+                         "replay": replay(service, key), "entries": timeline(service, key)})
 
 
 # ---------------------------------------------------------------- pages, outbox, metrics

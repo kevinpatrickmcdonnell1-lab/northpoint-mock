@@ -26,18 +26,19 @@ class Persona:
     fact_flags: Optional[str] = None        # "clinical" | "admin" | None: which fact flags to show
     landing: str = "/work"
     read_only: bool = False
+    clinical: bool = False                  # case page hides plan/coverage detail (invariant 5)
 
 
 PERSONAS: dict[str, Persona] = {p.key: p for p in [
     Persona("triage", TRIAGE, "Mara Quill, RN",
             "Urgent and undetermined clinical priority. Never waits on insurance.",
-            work_roles=(TRIAGE,), fact_flags="clinical"),
+            work_roles=(TRIAGE,), fact_flags="clinical", clinical=True),
     Persona("review", REVIEW, "Theo Lund, RN",
             "Expedited and routine clinical review before scheduling.",
-            work_roles=(REVIEW,), fact_flags="clinical"),
+            work_roles=(REVIEW,), fact_flags="clinical", clinical=True),
     Persona("cardiologist", "Cardiologist", "Dr. Ines Varga",
             "Clinical decisions on escalated orders.",
-            work_roles=(TRIAGE, REVIEW), clinical_only=True, fact_flags="clinical"),
+            work_roles=(TRIAGE, REVIEW), clinical_only=True, fact_flags="clinical", clinical=True),
     Persona("intake", INTAKE, "Jo Rivera",
             "Identity, coverage and missing documents: the exceptions the packet couldn't settle.",
             work_roles=(INTAKE,), fact_flags="admin"),
@@ -71,6 +72,7 @@ HANDOFF_ROLES: dict[str, tuple[str, ...]] = {
     "missing_info": (INTAKE,),
     "triage": (INTAKE, TRIAGE),
     "identity_task": (INTAKE,),
+    "clinician_review": (AUTH,),
 }
 
 # The one-click step for a work item, where a handoff does the job.
@@ -83,6 +85,8 @@ PRIMARY_HANDOFF = {
     "EVID_HMO1": ("missing_info", "Send request"),
     "COV_INACTIVE": ("missing_info", "Send request"),
     "PA_READY": ("pa_packet", "Prepare PA packet"),
+    "EVID_NOT_MET": ("clinician_review", "Send for clinician review"),
+    "PA_DENIED": ("clinician_review", "Send for clinician review"),
     "SCHED_READY": ("schedule", "Send to scheduling"),
 }
 

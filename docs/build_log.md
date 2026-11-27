@@ -251,7 +251,21 @@ Aligns the mock with the interview brief's requirements R1–R10 (see `docs/requ
 - **Caught during the build:** the "nothing preselected" test first searched for the word `checked` and matched the placeholder "what you checked". It now matches only a bare `checked` attribute on an input.
 - **Verified:** `tests/test_panels.py` (14 tests). Spot-checked on the real set: R08 urgent, R01 identity/coverage/request.
 
+### 22. Auth and Scheduler panels and the audit timeline (feature, step 3 of the persona-driven UI)
+- **What:**
+  - **Auth.** A `PA_READY` panel previews every criterion with its sources, then sends the PA packet. Because the engine never reads the outbox, the item stays `PA_READY` and moves to "Waiting on others", and its panel becomes "Record the payer's decision" (a decision with no default, plus a required payer reference). A pended decision raises `PA_AWAITING`, handled on the same panel. Not-met and payer-denied cases get a panel that lists only the not-met criteria and states "not a payer denial", plus a new `clinician_review` handoff (to Fax/Comms) carrying each not-met criterion with its sources (and the simulated denial, if any).
+  - **Scheduler.** Every gate with its basis, the simulated decisions and fact corrections the case depends on, then Send to scheduling. A sent case waits with its handoff ID, and recalls are listed with the instruction to release the slot.
+  - **Auditor.** `/case/{key}/timeline` shows load, evaluations, state changes, simulated decisions, fact reviews, handoff attempts/sends/blocks and deliveries, oldest first, with actors, filters and a JSON export. A replay check recomputes the case from source + reviews + events + config and compares it with the last audited `state_hash`.
+- **Side fix:** `handoffs.RECEIVERS` is now de-duplicated. The new handoff shares "Fax/Comms" with missing-info, which would have listed it twice in the outage controls.
+- **Verified:** `tests/test_step3.py` (12 tests), including a replay mismatch produced by running the same database under a different workflow flag. Spot-checked on the real set (R04 not met, R07 PA packet and timeline).
+
+### 23. Claiming work items and a clinical case view (feature)
+- **What:** a persona can claim an item from its panel, so others sharing the list (Triage RN and Cardiologist; Scheduler and Intake) see "Claimed by …" on the row and panel. Others' writes are refused until they take the item over, which needs a reason. Only the holder can release, and "next item" skips items someone else holds. Claims are an append-only `claims` table, placed on the case timeline right after the audit row they followed. On the case page, clinical personas no longer see the plan/PA and coverage cards (a note says why); gates and holds stay.
+- **Also:** `test_panels.py::test_work_list_links_to_panels_and_case_for_the_rest` expected Auth items to link to the case page. Step 3 gave them panels, so the assertion now expects the panel link (an intended change, not a regression).
+- **Verified:** `tests/test_claims.py` (9 tests), plus a case-page test in `test_personas.py`.
+
 ## Verification summary
+- **After personas step 3, claims and the clinical case view (2026-11-27):** `make test`: 417 tests (22 new). Both golden tables unchanged.
 - **After personas step 2 (2026-11-27):** `make test`: 395 tests (14 new panel tests). Both golden tables unchanged.
 - **After personas step 1 (2026-11-27):** `make test`: 381 tests (17 new: 16 persona + 1 title regression). Both golden tables unchanged.
 - **After fact review (2026-11-27):** `make test`: 364 tests (28 new); `make check`: 0 errors, 143 warnings. Both golden tables unchanged.
