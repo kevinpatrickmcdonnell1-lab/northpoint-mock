@@ -18,7 +18,7 @@ make demo PORT=8010     # if :8000 is taken
 |---|---|
 | Document facts (no derived fields, schema-enforced) | [data/extractions/](data/extractions/), [app/models.py](app/models.py) |
 | Policy dates, windows, plan matrix | [config/policy_sc_card_1_1.yaml](config/policy_sc_card_1_1.yaml) |
-| Assumption flags A1/A2 | [config/workflow.yaml](config/workflow.yaml) |
+| Assumption flags A1/A2 (A2 now follows the brief: a no-PA plan still gates on DOC-1, QUAL-1, QUAL-2, REPEAT-1) | [config/workflow.yaml](config/workflow.yaml) |
 | Rules PRI, ID-1, plan, COV-1, DOC-1, QUAL-1/2, REPEAT-1, HMO-1 | [app/rules/](app/rules/) |
 | Gates, actions → owner → Tennr product | [app/gates.py](app/gates.py), [app/actions.py](app/actions.py) |
 | SQLite (append-only events/audit via triggers), handoff stubs | [app/store.py](app/store.py), [app/handoffs.py](app/handoffs.py) |

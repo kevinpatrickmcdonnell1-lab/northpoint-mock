@@ -8,7 +8,8 @@ from app.models import ClinicianNoteFields, Document, ExtractionFile, RuleResult
 from app.policy import Policy
 from app.rules.common import in_window, of_type, ref
 
-LABELS = {"PRI-1": "Urgent", "PRI-2": "Expedited", "PRI-3": "Routine", "PRI-4": "Unable to determine"}
+# The brief's wording (R1): routine, expedited, urgent review, unable to determine.
+LABELS = {"PRI-1": "Urgent review", "PRI-2": "Expedited", "PRI-3": "Routine", "PRI-4": "Unable to determine"}
 RANK = {"PRI-1": 1, "PRI-2": 2, "PRI-3": 3}  # lower = more urgent
 CODES = {"PRI-1": "CLIN_URGENT", "PRI-2": "CLIN_EXPEDITED", "PRI-3": None, "PRI-4": "CLIN_UNDETERMINED"}
 

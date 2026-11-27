@@ -32,7 +32,8 @@ app = FastAPI(title="Northpoint stress-echo readiness mock (SYNTHETIC)")
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 templates = Jinja2Templates(directory=HERE / "templates")
 
-STATUS_WORDS = {"S": "Supported", "NM": "Not met", "I": "Insufficient", "NA": "Not applicable"}
+# Display words (brief R1). Internal codes stay S / NM / I / NA.
+STATUS_WORDS = {"S": "Supported", "NM": "Not met", "I": "Insufficient or conflicting", "NA": "Not applicable"}
 OWNER_TABS = [("all", "All", None), ("triage", "Clinical Triage", "Clinical Triage RN"),
               ("review", "Clinical Review", "Clinical Review RN"), ("intake", "Intake", "Intake Coordinator"),
               ("auth", "Auth", "Auth Specialist"), ("ready", "Ready for scheduling", None)]

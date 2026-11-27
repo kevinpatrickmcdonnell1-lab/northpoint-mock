@@ -39,6 +39,10 @@ def summarize(s: CaseState) -> dict[str, Any]:
         "criteria": {k: v.status for k, v in s.criteria.items()},
         "failing_gates": [g.gate for g in s.gates if not g.passed],
         "actions": [a.reason_code for a in s.actions],
+        # R6: the audit records who owns the next step, not only the reason codes.
+        "next_actions": [{"reason_code": a.reason_code, "owner_role": a.owner_role,
+                          "tennr_product": a.tennr_product} for a in s.actions],
+        "next_owner": s.actions[0].owner_role if s.actions else None,
         "pa_prep_ready": s.pa_prep_ready, "scheduling_sendable": s.scheduling_sendable,
         "admin_ready": s.admin_ready,
         "evidence_refs": {k: [f"{r.file} p.{r.page}" for r in v.evidence_refs]

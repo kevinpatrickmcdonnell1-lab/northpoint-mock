@@ -43,7 +43,7 @@
 
 <section>
   <h2>Criteria</h2>
-  <p class="small muted">"Not met" is not a denial. "Supported" is not an approval.{% if s.pa_requirement == 'not_required' %} PPO: only {{ s.gates|selectattr('gate','equalto','G-EVID')|map(attribute='basis')|first }}; the rest are shown for visibility.{% endif %}</p>
+  <p class="small muted">"Not met" is not a denial. "Supported" is not an approval.{% if s.pa_requirement == 'not_required' %} No-PA plan: the PA step is skipped; identity, coverage, evidence and clinical checks still apply.{% endif %}</p>
   <table>
     <thead><tr><th>Rule</th><th>Status</th><th>Reason</th><th>Evidence</th></tr></thead>
     <tbody>
@@ -165,7 +165,7 @@
     {% for a in audit %}
     <tr><td class="mono">{{ a.at }}</td><td>{{ a.kind }}</td><td>{{ a.actor }}</td>
       <td>{% set d = a.detail %}
-        {% if a.kind == 'evaluation' %}{{ d.policy_version }} @ {{ d.eval_date }} · holds {{ d.failing_gates|join(', ') or 'none' }} · actions {{ d.actions|join(', ') }}{% if d.diff and not d.diff.initial %} · <b>changed:</b> {{ d.diff.keys()|join(', ') }}{% endif %}
+        {% if a.kind == 'evaluation' %}{{ d.policy_version }} @ {{ d.eval_date }} · holds {{ d.failing_gates|join(', ') or 'none' }} · actions {{ d.actions|join(', ') }} · next owner: {{ d.next_owner or 'none' }}{% if d.diff and not d.diff.initial %} · <b>changed:</b> {{ d.diff.keys()|join(', ') }}{% endif %}
         {% elif a.kind == 'handoff_blocked' %}<b>blocked</b> {{ d.kind }}: {{ d.failing_gates|join(', ') }}
         {% elif a.kind == 'sim_event' %}<span class="sim-badge">SIMULATED</span> {{ d.event_id }} {{ d.type }} {{ d.decision }}
         {% elif a.kind == 'handoff_sent' and d.kind == 'scheduling_recall' %}<b>RECALL</b> {{ d.handoff_id }} recalls {{ d.original_handoff_id }}: {{ d.failing_gates|join(', ') }}
