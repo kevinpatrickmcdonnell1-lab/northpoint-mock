@@ -346,3 +346,55 @@ def test_fix6_case_page_warning(svc):
         assert "id-warning" in page and "1999-09-09" in page and "not found in packet" in page
     finally:
         del app.state.svc
+
+
+# --------------------------------------------------------------------------- #
+# Fix 7. Responses dropped silently by the evaluation-date filter (A8)          #
+# --------------------------------------------------------------------------- #
+
+LATE = {"response_date": "2026-10-02", "payer": "Summit Crest",
+        "plan_product_raw": "Summit Crest Medicare Advantage", "member_id": "SCM-302177",
+        "coverage_active_on_eval_date": True}
+
+
+def test_fix7_simulated_late_response_named_in_reason(svc):
+    ev = svc.simulate("P04", "BENEFITS_RESPONSE", "received", "Insurance Benefits Manager (mock)",
+                      benefits=LATE)
+    s = svc.state("P04")
+    assert s.coverage.status == "conflicting"
+    assert "1 response dated 2026-10-02 ignored (after evaluation date 2026-10-01, A8)" in s.coverage.reason_text
+    assert ev.event_id in s.coverage.reason_text
+    assert s.coverage.detail["ignored_after_eval_date"][0]["response_date"] == "2026-10-02"
+
+
+def test_fix7_in_packet_late_response_named_in_reason():
+    def fn(data):
+        b = docs_of(data, "benefits_response")[0]
+        b["date"] = "2026-10-02"
+        b["fields"]["response_date"] = "2026-10-02"
+    s = run(mutate("P04", fn))
+    assert s.coverage.status == "pending"
+    assert "1 response dated 2026-10-02 ignored (after evaluation date 2026-10-01, A8)" in s.coverage.reason_text
+    assert "P04_packet.pdf p.5" in s.coverage.reason_text
+
+
+def test_fix7_no_ignored_text_when_nothing_ignored():
+    assert "ignored" not in run_key("P04").coverage.reason_text
+
+
+def test_fix7_simulate_form_rejects_late_response(svc):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    app.state.svc = svc
+    try:
+        with TestClient(app) as c:
+            r = c.post("/case/P04/simulate", data={
+                "type": "BENEFITS_RESPONSE", "actor_role": "Insurance Benefits Manager (mock)",
+                "response_date": "2026-10-02", "payer": "Summit Crest",
+                "plan_product_raw": "Summit Crest Medicare Advantage", "member_id": "SCM-302177",
+                "active": "true"})
+        assert r.status_code == 200 and svc.store.event_count() == 0
+        assert "Not recorded" in r.text and "after the evaluation date 2026-10-01" in r.text
+        assert 'class="flash flash-bad small form-error"' in r.text     # shown inline, at the form
+    finally:
+        del app.state.svc

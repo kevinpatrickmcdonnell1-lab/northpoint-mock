@@ -127,7 +127,8 @@
     <form method="post" action="/case/{{ s.patient_key }}/simulate">
       <input type="hidden" name="type" value="BENEFITS_RESPONSE"><h4>New E&amp;B response</h4>
       <input type="hidden" name="actor_role" value="Insurance Benefits Manager (mock)">
-      <label>Response date <input name="response_date" value="{{ policy.eval_date }}"></label>
+      {% if form == 'benefits' and msg %}<p class="flash flash-bad small form-error">{{ msg }}</p>{% endif %}
+      <label>Response date <input name="response_date" value="{{ policy.eval_date }}" placeholder="YYYY-MM-DD, on or before {{ policy.eval_date }}"></label>
       <label>Payer <input name="payer"></label>
       <label>Plan product <input name="plan_product_raw" list="products"></label>
       <datalist id="products">{% for p in products %}<option value="{{ p }}">{% endfor %}</datalist>

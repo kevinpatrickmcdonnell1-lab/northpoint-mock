@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from datetime import date
 from pathlib import Path
 from typing import Optional
 from urllib.parse import quote_plus
@@ -120,7 +121,7 @@ def reset():
 # ---------------------------------------------------------------- case detail
 
 @app.get("/case/{key}")
-def case(request: Request, key: str, msg: Optional[str] = None):
+def case(request: Request, key: str, msg: Optional[str] = None, form: Optional[str] = None):
     service = svc()
     try:
         ef = service.store.case(key)
@@ -137,7 +138,7 @@ def case(request: Request, key: str, msg: Optional[str] = None):
         "active_sched": handoffs.active_scheduling_handoff(service, key),
         "policy": service.policy, "products": [p.product for p in service.policy.plans.values()],
         "age": business_days(ef.received_at, service.policy.eval_date),
-        "config_sha256": service.config_sha256})
+        "config_sha256": service.config_sha256, "form": form})
 
 
 @app.post("/case/{key}/simulate")
@@ -153,6 +154,15 @@ async def simulate(key: str, request: Request):
             ev = svc().simulate(key, t, "confirmed", confirmed=confirmed,
                                 epic_reference=form.get("epic_reference"), **kw)
         elif t == "BENEFITS_RESPONSE":
+            eval_date = svc().policy.eval_date
+            try:
+                rd = date.fromisoformat((form.get("response_date") or "").strip())
+            except ValueError:
+                rd = None
+            if rd is not None and rd > eval_date:
+                return go(f"/case/{key}?form=benefits", f"Not recorded: response date {rd} is after the "
+                          f"evaluation date {eval_date}, so the engine would ignore it (A8). "
+                          f"Use a date on or before {eval_date}.")
             b = {"response_date": form.get("response_date"), "payer": form.get("payer") or None,
                  "plan_product_raw": form.get("plan_product_raw") or None,
                  "member_id": form.get("member_id") or None,
