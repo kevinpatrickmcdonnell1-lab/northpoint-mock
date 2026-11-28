@@ -6,7 +6,36 @@
 <span class="st st-{{ status|lower|replace('_','-') }}">{{ STATUS_WORDS.get(status, status|replace('_',' ')) }}</span>
 {%- endmacro %}
 
+{% macro yesno(v, yes='yes', no='no') -%}
+<span class="st st-{{ 'yes' if v else 'no' }}">{{ yes if v else no }}</span>
+{%- endmacro %}
+
 {% macro ref_link(r, key=None) -%}
 {% if r.event_id %}<span class="sim-badge">SIMULATED – not from PDF · {{ r.event_id }}</span>
 {% else %}<a class="ref" href="{{ page_url(r.file, r.page, key, r.quote, r.field) }}"{% if not r.quote %} title="No quote recorded{% if r.field %} for {{ r.field }}{% endif %}"{% endif %}>{{ r.file }} p.{{ r.page }}</a>{% endif %}
+{%- endmacro %}
+
+{# Value lens: audience-facing callout for one layer; hidden until the presenter turns it on. #}
+{% macro lens(n) -%}{% set L = LAYERS[n] %}
+<aside class="lens" aria-label="Value lens, layer {{ n }}">
+  <span class="mark">Value lens · layer {{ n }}</span>
+  <div><div class="k">What changes for staff</div><p>{{ L.changes }}</p></div>
+  <div><div class="k">What Northpoint measures</div><p>{{ L.measure }}</p></div>
+  <div><div class="k">Assumption to test</div><p>{{ L.assumption }}</p></div>
+  <div class="ask"><div class="k">Question for {{ L.ask_role }}</div><p>“{{ L.ask }}”</p></div>
+</aside>
+{%- endmacro %}
+
+{% macro layer_head(n, stats_html='') -%}{% set L = LAYERS[n] %}
+<header class="layer-head">
+  <div class="big">0{{ n }}</div>
+  <div>
+    <p class="eyebrow">Layer {{ n }}</p>
+    <h2>{{ L.title }}</h2>
+    <p class="tagline">{{ L.tagline }}</p>
+  </div>
+  <div class="stats">{{ stats_html|safe }}
+    <div class="products">{% for p in L.products %}<span class="tag">{{ p }}</span>{% endfor %}</div>
+  </div>
+</header>
 {%- endmacro %}

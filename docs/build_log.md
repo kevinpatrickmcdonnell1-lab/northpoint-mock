@@ -173,7 +173,61 @@ A review of the seams between document facts, policy config and simulated events
 - **Fix:** `docs/demo_script.md` is rewritten around the real set: baseline counts and owner tabs, R07 (urgent and PA-ready), R01 (identity conflict), R02 (PA path, including the Fix 2 rejection), R05 (clearance → send → Cardiologist `not_cleared` → automatic recall), R06 (HMO-1), R04/R09 (not met), R10 (inactive), end-of-demo metrics, and a note not to flip A1/A2 live. The mock walkthrough is kept as an appendix. Every ID, number and status was taken from running the steps (service layer, then HTTP on the real set). The `not_cleared` flash now says the handoff was recalled, so the beat is visible without scrolling.
 - **Verified:** `tests/test_demo_script_real.py` runs the scripted sequence in script order on the real set and asserts each outcome (`test_1`…`test_9`), and checks the document itself (`test_10`/`test_11`: no mock keys in the main walkthrough; every stated number present). Against the old script, 26 of those doc checks failed; all pass now. `test_12_recall_flash_in_ui` was written after the flash change, not before. 309 tests pass.
 
+## 2026-11-27 · Brief alignment (branch `fix/brief-alignment`)
+
+Aligns the mock with the interview brief's requirements R1–R10 (see `docs/requirements_trace.md`). Each fix was driven by a reproducing test written first and confirmed failing. Neither expected-results table changed.
+
+### Brief fix 1. No-PA plans must still gate on evidence (rule-reading error, R5)
+- **Problem:** `no_pa_evidence_gate: [DOC-1]` (A2) let a no-PA (PPO) case that was not met on QUAL-1 pass G-EVID and be sent to scheduling. The brief says: "A no-PA plan removes only the PA step, not the identity, coverage, evidence, or clinical checks."
+- **Cause:** a rule-reading error on my side. A2 read the PLAN §7.4 example as the default, where the brief makes evidence mandatory.
+- **Found by:** review against the brief. Reproduced on an R05 variant built in the test (assessment `complaint_type` set to nonexertional, clinical review cleared): no failing gates, sendable.
+- **Fix:** the default is now `[DOC-1, QUAL-1, QUAL-2, REPEAT-1]`; HMO-1 stays plan-specific and the flag stays configurable. The case page's PPO note now reads "No-PA plan: the PA step is skipped; identity, coverage, evidence and clinical checks still apply." `test_configs_load` and `test_flag_A2_ppo_evidence_gate_configurable` test both the new default and a `model_copy` override. A2 is re-recorded in `assumptions.md`, and the README and demo script are updated.
+- **Verified:** `test_brief1_no_pa_case_not_met_on_qual1_is_never_sendable` failed (`[] == ['G-EVID']`), then passed: G-EVID blocks, EVID_NOT_MET is emitted, no PA action, and the send is blocked and audited. `test_brief1_unmodified_r05_still_supported_on_every_gating_rule` and `test_brief1_case_page_ppo_note` pass. Golden tables unchanged (no current no-PA case has a non-supported QUAL/REPEAT rule).
+
+### Brief fix 2. The audit must record the next owner (missing behaviour, R6)
+- **Problem:** each `evaluation` audit entry stored reason codes and evidence references, but not who owns the next step. R6 asks for an audit trail of source references *and* the next owner.
+- **Found by:** review against the brief.
+- **Fix:** `service.summarize()` adds `next_actions` (`reason_code`, `owner_role`, `tennr_product` per action) and `next_owner` (the first action's owner, or null). The old `actions` list is kept so diffs stay comparable, and since the diff covers every summary key, a change of owner appears as a `state_change`. The case page's audit rows show "next owner: …".
+- **Verified:** four Fix 2 tests failed first (`KeyError: 'next_owner'`; no owner on the page), then passed. One covers a real owner change: P03 cleared by triage moves the owner from Clinical Triage RN to Intake Coordinator, and the diff records it. On R01 the owner stays Intake Coordinator after identity resolution (the next task changes from ID_CONFLICT to COV_PENDING_NONE), so the test checks that `next_owner` is *not* in the diff. `test_brief2_evaluations_still_carry_file_and_page_refs` guards the evidence refs. 317 tests pass.
+
+### Brief fix 3. Labels match the brief's wording (R1)
+- **Problem:** the UI said "PRI-1 Urgent" and "Insufficient", while the brief's R1 vocabulary is "urgent review" and "insufficient/conflicting".
+- **Found by:** review against the brief.
+- **Fix:** `rules/priority.py` LABELS: PRI-1 is now "Urgent review" (the other three already matched). `main.py` STATUS_WORDS: `I` displays as "Insufficient or conflicting"; the internal code is unchanged. The label also flows into the G-CLIN basis, the triage payload's `label` and the scheduling payload's `clinical_priority`. Identity was confirmed never to show "inactive" (that test passed before the fix, so it is a guard, not a reproduction). Demo script wording updated.
+- **Verified:** the label, status-word, payload and R07/R01 case-page tests failed first, then passed. Golden tables use status codes, not labels, and are unchanged. 322 tests pass.
+
+### Brief fix 4. Traceability doc (R1–R10)
+- **What:** `docs/requirements_trace.md` has one row per brief requirement, giving where it's implemented (file · function), the tests that prove it, and how to show it live on the real set. `tests/test_requirements_trace.py` parses the doc and asserts that all ten rows exist, each cites at least one test, and every cited test ID is collected by pytest.
+- **Gaps closed while writing it:** R4, R9 and R10 had only indirect proof, so three direct tests were added: `test_r4_pa_packet_only_when_required_and_id_cov_evidence_pass` (each PA-prep condition blocks on its own), `test_r9_every_handoff_names_item_system_output_and_gates` (all five handoff kinds) and `test_r10_no_clinical_treatment_decisions`. They passed on first run because the behaviour already existed; they are proofs, not reproductions.
+- **Verified:** the trace test failed first (no doc), then passed. Every live-demo claim in the doc was run on the real set over HTTP (R07 label, R01 PA packet blocked on G-ID/G-COV/G-EVID, R05 "PA not required" and the PPO note, R02 blocked → early approval refused → packet → approval → sent, R10 inactive). 327 tests pass.
+- **Check items skipped:** "no PA decision without a PA submission" and "one active scheduling handoff" were already on the base branch with reproducing tests (seam-hardening Fixes 2 and 3), so they were not rebuilt.
+## 2026-11-27 · UI rework for the three-layer demo (branch `ui/tennr-demo`)
+
+- **What:** the UI was rebuilt around the demo's three layers (document extraction, policy engine, case state & audit), styled with the palette from tennr.com's published CSS custom properties. The licensed fonts are replaced by free stand-ins (Fraunces, Inter, JetBrains Mono, with system fallbacks for offline use). Still server-rendered, one CSS file and no new Python dependencies. The new pieces are:
+  - case pages split into three anchored layers, with a sticky status bar;
+  - document cards with page thumbnails and cited facts, plus an identifiers table grouped by value;
+  - a clinical lane and an admin lane, a gate pipeline, and a "what the last event changed" card;
+  - a page-viewer panel of the facts extracted from that page;
+  - KPI tiles and a three-layer strip on the queue, and metrics grouped by layer with the pilot plan;
+  - an optional "Value lens" (button or key V) that shows what changes, what Northpoint measures, the assumption and the discovery question for each layer.
+
+  Every UI wording the tests guard is unchanged.
+
+### 15. Double-clicking a write button could 500 (code bug)
+- **What:** event and handoff IDs are numbered from row counts, and sync routes run in a thread pool, so two simultaneous clicks could compute the same ID or idempotency key and hit a UNIQUE constraint (`sqlite3.IntegrityError` → HTTP 500). The demo script had this as a "don't do live" item.
+- **Found by:** the demo script's known-issues list; reproduced by firing 6 simultaneous "Notify triage" posts on one case with the lock removed (3 returned 500).
+- **Fix:** `Service.lock` (an `RLock`) serialises every write route (simulate, handoffs, re-run). An `IntegrityError` that still occurs is shown as a readable "Not recorded" message. The browser also drops a second submit while the first is in flight.
+- **Verified:** `tests/test_ui_layers.py::test_concurrent_clicks_record_one_handoff_and_never_500` (6 → all 200, one handoff) and `test_concurrent_simulate_events_get_unique_ids` (5 events, 5 unique IDs).
+
+### 16. Reset came back already evaluated (demo-flow fix)
+- **What:** Reset cleared events, handoffs and the audit trail, but re-seeding immediately ran the engine, so the queue was fully populated and the opening "Run all 10 through engine" click changed nothing on screen. Reset also rebuilt the service with the default dataset and outbox rather than the current ones.
+- **Found by:** Kevin, on the live app.
+- **Fix:** `Service.seed(evaluate=False)` loads the packets without evaluating. Reset, a fresh DB and `make seed` all start in the "packets arrived, engine not run" state. The queue lists the packets as "Awaiting engine", case pages show Layer 1 only, and metrics show extraction only. The run button (a real, audited evaluation) fills everything in. Reset keeps the current dataset and outbox directory.
+- **Verified:** `test_reset_leaves_packets_loaded_but_not_evaluated`, `test_case_before_run_shows_extraction_only` and `test_run_after_reset_populates_and_audits` failed first, then passed. 318 tests pass.
+
 ## Verification summary
+- **After the UI rework, rebased on brief alignment (2026-11-27):** `make test`: 336 tests; `make check`: 0 errors, 143 warnings. Both golden tables unchanged.
+- **After brief alignment (2026-11-27):** `make test`: 327 tests; `make check`: 0 errors, 143 warnings. Both golden tables unchanged.
 - **After seam hardening (2026-11-27):** `make test`: 309 tests (228 before the branch); `make check`: 0 errors, 143 warnings (judgment fields without their own quote, by design). Both golden tables unchanged.
 - `make test`: 228 tests, including the hand-derived real golden table (10 rows). Earlier counts: 194, then 217. Golden table, window boundaries, single-fact flips, invariants (gate leaks, no events from the engine, no derived keys, immutable sources via SQLite triggers, mutation tests on priority and unsigned docs, reason/evidence completeness, determinism, no patient-specific code), the four scripted transitions, an HTTP walkthrough of P01/P03/P04/P05/P08, and quote-on-page checks for all ten packets.
 - `make reset mock ingest check seed` from clean: ~5 s.

@@ -5,6 +5,7 @@ The engine stays pure; this layer does the I/O. Only explicit calls to `simulate
 """
 from __future__ import annotations
 
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
@@ -39,6 +40,10 @@ def summarize(s: CaseState) -> dict[str, Any]:
         "criteria": {k: v.status for k, v in s.criteria.items()},
         "failing_gates": [g.gate for g in s.gates if not g.passed],
         "actions": [a.reason_code for a in s.actions],
+        # R6: the audit records who owns the next step, not only the reason codes.
+        "next_actions": [{"reason_code": a.reason_code, "owner_role": a.owner_role,
+                          "tennr_product": a.tennr_product} for a in s.actions],
+        "next_owner": s.actions[0].owner_role if s.actions else None,
         "pa_prep_ready": s.pa_prep_ready, "scheduling_sendable": s.scheduling_sendable,
         "admin_ready": s.admin_ready,
         "evidence_refs": {k: [f"{r.file} p.{r.page}" for r in v.evidence_refs]
@@ -67,6 +72,9 @@ class Service:
         # Validate config first, so a bad YAML fails at startup with a ConfigError (Fix 5).
         loaded_policy, loaded_workflow, self.config_sha256 = load_config(policy_path, workflow_path)
         self.store = Store(db_path)
+        # One writer at a time: event IDs and handoff IDs are numbered from counts, so two
+        # simultaneous clicks would otherwise collide on a UNIQUE key (sqlite IntegrityError).
+        self.lock = threading.RLock()
         self.outbox_dir = Path(outbox_dir)
         self.policy = policy or loaded_policy
         self.workflow = workflow or loaded_workflow
@@ -75,12 +83,19 @@ class Service:
         self.extractions_dir = extractions_dir or active_extractions_dir()
 
     # ---- setup ----------------------------------------------------------------
-    def seed(self) -> None:
+    def seed(self, evaluate: bool = True) -> None:
+        """Load the packets' extracted facts. With evaluate=False the packets have arrived
+        but the engine has not run yet (the demo's starting state after Reset)."""
         if self.store.keys():
             return
         for key, ef in load_extractions(self.extractions_dir).items():
             self.store.load_case(ef, wall_clock())
-        self.evaluate_all(actor="system (seed)")
+        if evaluate:
+            self.evaluate_all(actor="system (seed)")
+
+    def engine_has_run(self) -> bool:
+        return self.store.db.execute(
+            "SELECT 1 FROM audit_log WHERE kind='evaluation' LIMIT 1").fetchone() is not None
 
     # ---- evaluation -----------------------------------------------------------
     def state(self, key: str) -> CaseState:

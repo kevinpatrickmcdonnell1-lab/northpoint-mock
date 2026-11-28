@@ -1,21 +1,38 @@
 {% extends "base.html" %}
 {% block title %}{{ file }} p.{{ page }}{% endblock %}
 {% block content %}
-<p>{% if key %}<a href="/case/{{ key }}">← back to {{ key }}</a>{% else %}<a href="/">← back to queue</a> <span class="small muted">(no extraction cites this page)</span>{% endif %}</p>
-<h1>{{ file }} · page {{ page }}</h1>
+<p class="crumbs">{% if key %}<a href="/case/{{ key }}">← back to {{ key }}</a>{% else %}<a href="/">← back to queue</a> <span class="small muted">(no extraction cites this page)</span>{% endif %}</p>
+<p class="eyebrow" style="margin-top:14px">Layer 1 · Document extraction · source page</p>
+<h1 class="display" style="font-size:30px;margin-bottom:16px">{{ file }} <span class="muted" style="font-size:18px">page {{ page }}</span></h1>
 <section class="viewer">
-  <img src="/pages/{{ file }}/{{ page }}.png" alt="{{ file }} page {{ page }}">
+  <div class="sheet"><img src="/pages/{{ file }}/{{ page }}.png" alt="{{ file }} page {{ page }}"></div>
   <div>
     {% if not q and field %}
       <p class="small st st-pending">No quote recorded for {{ field }}; showing the page</p>
     {% endif %}
     {% if q %}
-      <h3>Cited quote</h3>
-      <blockquote>{{ q }}</blockquote>
-      {% if parts %}<p class="small st st-pass">Found on this page.</p>{% else %}<p class="small st st-blocked">Quote not found on this page text.</p>{% endif %}
+      <div class="card" style="margin-bottom:14px">
+        <h3>Cited quote</h3>
+        <blockquote>{{ q }}</blockquote>
+        <p style="margin:10px 0 0">{% if parts %}<span class="small st st-pass">Found on this page.</span>{% else %}<span class="small st st-blocked">Quote not found on this page text.</span>{% endif %}</p>
+      </div>
     {% endif %}
-    <h3>Page text</h3>
+    {% if here %}
+    <div class="card facts-here" style="margin-bottom:14px">
+      <h3>Facts extracted from this page</h3>
+      {% for x in here %}{% set d = x.d %}
+        <p style="margin:10px 0 4px"><b>{{ TITLES[d.doc_type] }}</b> <span class="muted small">{{ d.date or 'undated' }} · {% if d.doc_type in ('registration_face_sheet','insurance_card','benefits_response') %}admin record{% elif d.signed %}signed {{ d.signer }}{% else %}unsigned{% endif %}</span>
+          {% if x.unused %}<span class="chip neutral">{{ x.unused }}</span>{% endif %}</p>
+        {% for qt in x.quotes %}<div class="q {% if norm_q and ' '.join(qt.text.split()) == norm_q %}cited{% endif %}"><span class="f">{{ qt.field }}</span>“{{ qt.text }}”</div>{% endfor %}
+        {% set ids = d.identifiers.model_dump(exclude_none=True) %}
+        {% if ids %}<div class="small muted" style="margin-top:4px">Identifiers: {% for k, v in ids.items() %}<span class="mono">{{ k }}={{ v }}</span>{% if not loop.last %} · {% endif %}{% endfor %}</div>{% endif %}
+      {% endfor %}
+      <p class="small muted" style="margin:10px 0 0">Every fact carries a file, a page and a quote. Conclusions are made by the rules, not stored here.</p>
+    </div>
+    {% endif %}
+    <details {% if parts %}open{% endif %}><summary class="small muted">Page text (as ingested)</summary>
     <pre class="pagetext">{% if parts %}{{ parts[0] }}<mark>{{ parts[1] }}</mark>{{ parts[2] }}{% else %}{{ text }}{% endif %}</pre>
+    </details>
   </div>
 </section>
 {% endblock %}

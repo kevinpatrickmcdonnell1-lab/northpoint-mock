@@ -95,7 +95,12 @@ def test_configs_load():
     assert p.resolve_product("Summit Crest Medicare Advantage") == "PLAN-SCMA"
     assert p.resolve_product("Harborstone Health Commercial") is None
     assert p.plans["PLAN-HSPPO"].pa == "not_required"
-    assert w.routine_requires_clinical_clearance is False and w.no_pa_evidence_gate == ["DOC-1"]
+    assert w.routine_requires_clinical_clearance is False
+    # A2 follows the brief (R5): a no-PA plan still gates on every common evidence rule.
+    assert w.no_pa_evidence_gate == ["DOC-1", "QUAL-1", "QUAL-2", "REPEAT-1"]
+    # ...and stays a config switch: an override is accepted and validated like the file.
+    override = w.model_copy(update={"no_pa_evidence_gate": ["DOC-1"]})
+    assert override.no_pa_evidence_gate == ["DOC-1"] and w.no_pa_evidence_gate != override.no_pa_evidence_gate
 
 
 def test_date_named_fields_accept_dates():

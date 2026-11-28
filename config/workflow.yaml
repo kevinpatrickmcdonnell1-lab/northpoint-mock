@@ -1,6 +1,6 @@
 # Workflow assumption flags (PLAN §7.4). Name these out loud in the demo; they can be flipped live.
 routine_requires_clinical_clearance: false   # A1: ask Intake/Clinical
-no_pa_evidence_gate: [DOC-1]                 # A2: QUAL/REPEAT shown as advisory for PPO
+no_pa_evidence_gate: [DOC-1, QUAL-1, QUAL-2, REPEAT-1]   # A2 (brief R5): a no-PA plan skips only the PA step
 
 # Stretch: handoff delivery to (mock) downstream systems
 delivery_max_attempts: 3     # failed attempts before a handoff is dead-lettered
