@@ -118,6 +118,11 @@
         {
           "field": "signer",
           "page": 2,
+          "text": "Electronically signed by Rowan S. Mercer, MD (synthetic)"
+        },
+        {
+          "field": "date",
+          "page": 2,
           "text": "Date signed 2026-09-29"
         }
       ]

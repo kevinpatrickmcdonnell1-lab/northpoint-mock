@@ -225,7 +225,51 @@ Aligns the mock with the interview brief's requirements R1–R10 (see `docs/requ
 - **Fix:** `Service.seed(evaluate=False)` loads the packets without evaluating. Reset, a fresh DB and `make seed` all start in the "packets arrived, engine not run" state. The queue lists the packets as "Awaiting engine", case pages show Layer 1 only, and metrics show extraction only. The run button (a real, audited evaluation) fills everything in. Reset keeps the current dataset and outbox directory.
 - **Verified:** `test_reset_leaves_packets_loaded_but_not_evaluated`, `test_case_before_run_shows_extraction_only` and `test_run_after_reset_populates_and_audits` failed first, then passed. 318 tests pass.
 
+### 17. R01 order's signer quote cited the date, not the signature (extraction error)
+- **What:** on every real packet's stress echo order, the quote backing `signer` was the date-signed line ("09/20/2026" on R01; "Date signed …" from the R02–R10 template in `author_real_extractions.py`). The `signer` value was right; its evidence was not. The bulk review on 2026-11-25 signed it off as "verified, no corrections".
+- **Found by:** Kevin, reading the R01 page viewer on 2026-11-27.
+- **Fix:** each order now has a `signer` quote ("Electronically signed by …") and a separate `date` quote. Extractions regenerated, and all 20 new quotes were checked on their pages.
+- **Verified:** 336 tests pass. `tests/test_fact_review.py::test_check_catches_the_signer_bug_that_bulk_review_missed` puts the bug back and asserts the new fact check flags it.
+
+### 18. Human review of extracted facts (feature; motivated by 17)
+- **What:** fact checks (`app/fact_review.py`) flag a quote that doesn't back its fact. A person confirms or corrects each fact in the page viewer. Corrections go in an append-only `fact_reviews` table and are laid over the immutable source, the engine evaluates the reviewed facts, and handoff payloads list the corrections applied. A new "Fact review" queue tab lists cases with open flags.
+- **Found by:** item 17. The checks also found 11 weak quotes on the real packets: on 9 orders `procedure` is quoted as "Separate diagnostic order", and on 2 notes `timing_text` is quoted as a fragment. They are left in the data on purpose, as live items for the review flow (see B34).
+- **Verified:** `tests/test_fact_review.py` (28 tests): the check catches the reintroduced bug; mock packets raise no flags; a correction changes results only through the rules and leaves `cases` unchanged; ten kinds of bad correction are refused and record nothing; clinical facts need a clinical role; a correction after a scheduling handoff triggers the recall; `fact_reviews` rejects UPDATE/DELETE; open flags never change any engine result; HTTP flow; handoff payload provenance.
+
+### 19. Fact-review script pasted into the page viewer's <title> (code bug)
+- **What:** when the reviewer script was added to `page.html`, a replace on `{% endblock %}` matched the title block as well as the content block. The script was emitted inside `<title>` (where it shows as text in the browser tab) and a second time in the body.
+- **Found by:** step 1 of the persona work, when an edit to the same script matched twice.
+- **Fix:** the title block is just the file and page again, and the script appears once.
+- **Verified:** `tests/test_fact_review.py::test_page_viewer_title_is_just_the_page` failed against the broken template and passes now. Lesson: never replace a string that every template shares.
+
+### 20. Personas: sign-in, attribution, My Work (feature, step 1 of the persona-driven UI)
+- **What:** an "Acting as" switch in the header (8 fictional personas, or Presenter mode). With a persona chosen, the server attributes every event, fact review, handoff and re-run to that persona, whatever the form says. Each role sees only the controls it may use, and a refused write is shown as "Not recorded" (refused handoffs are audited as `handoff_blocked`). `/work` lists the persona's own items (next actions they own, plus fact flags of their kind), sorted by priority then age, with other teams' holds shown read-only and a one-click handoff where one does the job.
+- **Verified:** `tests/test_personas.py` (16 tests): sign-in and landing, each role's list on the mock set, spoofed role/name ignored, benefits entered by Intake attributed to the mock IBM, wrong-role writes refused (and audited for handoffs), read-only roles can't write, fact reviews attributed, role pickers dropped, the before-engine-run state, and fact flags routed by kind on the real set. Presenter mode is unchanged (all earlier tests pass as before).
+
+### 21. Action panels for Clinical Triage and Intake (feature, step 2 of the persona-driven UI)
+- **What:** each work item (a case plus one reason code) opens `/work/{case}/{code}`, a panel with only the evidence that reason needs and the one form that settles it. Saving records through the existing audited paths with the persona's attribution, then opens the persona's next item (another case first). There are four panel kinds: clinical (the priority rule's signed sources with their page images; no payer/coverage/PA on screen; a decision with no default, plus a required note), identity (each disagreeing value with its pages; nothing preselected; every disagreeing field must be settled; Epic reference and note), coverage (every coverage document's payer/product/member/date; log an E&B response), and request (a preview of the missing-info fax and its recipient; send). A sent request moves the item to "Waiting on others" with its handoff ID until the document arrives. Auth and Scheduler items still link to the case page (step 3). The E&B form parsing moved into one helper (`benefits_from_form`) shared by the case page and the panel.
+- **Caught during the build:** the "nothing preselected" test first searched for the word `checked` and matched the placeholder "what you checked". It now matches only a bare `checked` attribute on an input.
+- **Verified:** `tests/test_panels.py` (14 tests). Spot-checked on the real set: R08 urgent, R01 identity/coverage/request.
+
+### 22. Auth and Scheduler panels and the audit timeline (feature, step 3 of the persona-driven UI)
+- **What:**
+  - **Auth.** A `PA_READY` panel previews every criterion with its sources, then sends the PA packet. Because the engine never reads the outbox, the item stays `PA_READY` and moves to "Waiting on others", and its panel becomes "Record the payer's decision" (a decision with no default, plus a required payer reference). A pended decision raises `PA_AWAITING`, handled on the same panel. Not-met and payer-denied cases get a panel that lists only the not-met criteria and states "not a payer denial", plus a new `clinician_review` handoff (to Fax/Comms) carrying each not-met criterion with its sources (and the simulated denial, if any).
+  - **Scheduler.** Every gate with its basis, the simulated decisions and fact corrections the case depends on, then Send to scheduling. A sent case waits with its handoff ID, and recalls are listed with the instruction to release the slot.
+  - **Auditor.** `/case/{key}/timeline` shows load, evaluations, state changes, simulated decisions, fact reviews, handoff attempts/sends/blocks and deliveries, oldest first, with actors, filters and a JSON export. A replay check recomputes the case from source + reviews + events + config and compares it with the last audited `state_hash`.
+- **Side fix:** `handoffs.RECEIVERS` is now de-duplicated. The new handoff shares "Fax/Comms" with missing-info, which would have listed it twice in the outage controls.
+- **Verified:** `tests/test_step3.py` (12 tests), including a replay mismatch produced by running the same database under a different workflow flag. Spot-checked on the real set (R04 not met, R07 PA packet and timeline).
+
+### 23. Claiming work items and a clinical case view (feature)
+- **What:** a persona can claim an item from its panel, so others sharing the list (Triage RN and Cardiologist; Scheduler and Intake) see "Claimed by …" on the row and panel. Others' writes are refused until they take the item over, which needs a reason. Only the holder can release, and "next item" skips items someone else holds. Claims are an append-only `claims` table, placed on the case timeline right after the audit row they followed. On the case page, clinical personas no longer see the plan/PA and coverage cards (a note says why); gates and holds stay.
+- **Also:** `test_panels.py::test_work_list_links_to_panels_and_case_for_the_rest` expected Auth items to link to the case page. Step 3 gave them panels, so the assertion now expects the panel link (an intended change, not a regression).
+- **Verified:** `tests/test_claims.py` (9 tests), plus a case-page test in `test_personas.py`.
+
 ## Verification summary
+- **After the persona demo script (2026-11-27):** `make test`: 463 tests (46 new in `tests/test_demo_script_personas.py`, which drives `docs/demo_script_personas.md` over HTTP with the persona cookie). Judgment calls: R01 is resolved to DOB 1958-06-12 as a scripted Intake decision, never inferred by the engine; the payer-record correction is said aloud as not modelled; `blocked_attempts` counts every `handoff_blocked` audit row, so the run shows 1. Both golden tables unchanged.
+- **After personas step 3, claims and the clinical case view (2026-11-27):** `make test`: 417 tests (22 new). Both golden tables unchanged.
+- **After personas step 2 (2026-11-27):** `make test`: 395 tests (14 new panel tests). Both golden tables unchanged.
+- **After personas step 1 (2026-11-27):** `make test`: 381 tests (17 new: 16 persona + 1 title regression). Both golden tables unchanged.
+- **After fact review (2026-11-27):** `make test`: 364 tests (28 new); `make check`: 0 errors, 143 warnings. Both golden tables unchanged.
 - **After the UI rework, rebased on brief alignment (2026-11-27):** `make test`: 336 tests; `make check`: 0 errors, 143 warnings. Both golden tables unchanged.
 - **After brief alignment (2026-11-27):** `make test`: 327 tests; `make check`: 0 errors, 143 warnings. Both golden tables unchanged.
 - **After seam hardening (2026-11-27):** `make test`: 309 tests (228 before the branch); `make check`: 0 errors, 143 warnings (judgment fields without their own quote, by design). Both golden tables unchanged.

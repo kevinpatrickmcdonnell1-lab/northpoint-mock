@@ -1,6 +1,7 @@
 """FastAPI + Jinja2 + HTMX UI (PLAN §8). Plain server-rendered pages, one CSS file."""
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 from datetime import date
@@ -14,12 +15,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
-from app import handoffs, metrics, presenter
-from app.engine import evaluate
+from app import fact_review as fr
+from app import handoffs, metrics, panels, personas, presenter
+from app.engine import evaluate, state_hash
 from app.metrics import business_days
 from app.pdfs import PAGES, TITLES
 from app.rules.common import why_unused
-from app.service import ALLOWED_ROLES, DEFAULT_DB, DEFAULT_OUTBOX, Service
+from app.service import ALLOWED_ROLES, DEFAULT_DB, DEFAULT_OUTBOX, Service, wall_clock
 from app.policy import load_config
 
 HERE = Path(__file__).resolve().parent
@@ -37,7 +39,8 @@ templates = Jinja2Templates(directory=HERE / "templates")
 STATUS_WORDS = {"S": "Supported", "NM": "Not met", "I": "Insufficient or conflicting", "NA": "Not applicable"}
 OWNER_TABS = [("all", "All", None), ("triage", "Clinical Triage", "Clinical Triage RN"),
               ("review", "Clinical Review", "Clinical Review RN"), ("intake", "Intake", "Intake Coordinator"),
-              ("auth", "Auth", "Auth Specialist"), ("ready", "Ready for scheduling", None)]
+              ("auth", "Auth", "Auth Specialist"), ("ready", "Ready for scheduling", None),
+              ("facts", "Fact review", None)]
 
 
 def page_url(file: str, page: int, case: Optional[str] = None, q: Optional[str] = None,
@@ -47,7 +50,19 @@ def page_url(file: str, page: int, case: Optional[str] = None, q: Optional[str] 
     return f"/page/{quote(file)}/{page}" + (f"?{urlencode(params)}" if params else "")
 
 
-templates.env.globals.update(STATUS_WORDS=STATUS_WORDS, TITLES=TITLES, quote_plus=quote_plus,
+def persona_of(request: Request) -> Optional[personas.Persona]:
+    """The persona this browser is acting as (cookie), or None for presenter mode."""
+    return personas.get(request.cookies.get(personas.COOKIE))
+
+
+def actor_label(request: Request, default: str) -> str:
+    p = persona_of(request)
+    return personas.label(p) if p else default
+
+
+templates.env.globals.update(persona_of=persona_of, PERSONAS=personas.PERSONAS,
+                             persona_label=personas.label, may_send=personas.may_send,
+                             may_record=personas.may_record, STATUS_WORDS=STATUS_WORDS, TITLES=TITLES, quote_plus=quote_plus,
                              page_url=page_url, LAYERS=presenter.LAYERS, PILOT=presenter.PILOT)
 
 CONCURRENT_WRITE = ("Not recorded: another write landed at the same moment, so nothing was saved. "
@@ -78,6 +93,8 @@ def corpus_stats(service: Service) -> dict:
         "documents": sum(len(ef.documents) for ef in efs),
         "quotes": sum(len(d.quotes) for ef in efs for d in ef.documents),
         "corrections": sum(len(ef.corrections) for ef in efs),
+        "reviews": len(service.store.reviews()),
+        "runtime_corrections": sum(r.action == "correct" for r in service.store.reviews()),
         "methods": sorted({ef.extraction_method for ef in efs}),
     }
 
@@ -135,7 +152,7 @@ def procedure(ef) -> str:
 
 
 def row(s, service: Service) -> dict:
-    ef = service.store.case(s.patient_key)
+    ef = service.case(s.patient_key)
     sent = handoffs.active_scheduling_handoff(service, s.patient_key) is not None
     return {
         "s": s, "name": patient_name(ef), "packet": ef.packet_id, "procedure": procedure(ef),
@@ -145,6 +162,7 @@ def row(s, service: Service) -> dict:
         "age": business_days(ef.received_at, service.policy.eval_date), "sent": sent,
         "site": ef.ordering_site or "(unknown)",
         "pages": len({p for d in ef.documents for p in d.pages}), "docs": len(ef.documents),
+        "flags": service.open_flags(s.patient_key),
     }
 
 
@@ -167,11 +185,14 @@ def queue(request: Request, owner: str = "all", site: str = "all", msg: Optional
             "clinical": sum(1 for r in rows if any(a.reason_code.startswith("CLIN_") for a in r["s"].actions))}
     corpus = corpus_stats(service)
     tab_counts = {k: (sum(r["s"].scheduling_sendable for r in rows) if k == "ready" else
+                      sum(bool(r["flags"]) for r in rows) if k == "facts" else
                       sum(any(a.owner_role == role_ for a in r["s"].actions) for r in rows) if role_ else len(rows))
                   for k, _, role_ in OWNER_TABS}
     role = dict((k, r) for k, _, r in OWNER_TABS).get(owner)
     if owner == "ready":
         rows = [r for r in rows if r["s"].scheduling_sendable]
+    elif owner == "facts":
+        rows = [r for r in rows if r["flags"]]
     elif role:
         rows = [r for r in rows if any(a.owner_role == role for a in r["s"].actions)]
     return templates.TemplateResponse(request, "queue.html", {
@@ -183,9 +204,10 @@ def queue(request: Request, owner: str = "all", site: str = "all", msg: Optional
 
 
 @app.post("/rerun")
-def rerun(back: str = Form("/")):
+def rerun(request: Request, back: str = Form("/")):
     with svc().lock:
-        states = svc().evaluate_all(actor="UI: re-run all through engine")
+        states = svc().evaluate_all(actor=f"UI: re-run all through engine "
+                                          f"({actor_label(request, 'presenter')})")
     back = back if back.startswith("/case/") else "/"
     return go(back, f"Re-evaluated all {len(states)} cases through one engine; audit entries written.")
 
@@ -215,7 +237,7 @@ def case(request: Request, key: str, msg: Optional[str] = None, form: Optional[s
          at: Optional[str] = None):
     service = svc()
     try:
-        ef = service.store.case(key)
+        ef = service.case(key)
     except KeyError:
         raise HTTPException(404)
     events = service.store.events(key)
@@ -240,14 +262,42 @@ def case(request: Request, key: str, msg: Optional[str] = None, form: Optional[s
         "quotes_total": sum(len(d.quotes) for d in ef.documents),
         "clin_actions": clin, "admin_actions": admin, "change": last_change(service, key),
         "gate_map": {g.gate: g for g in s.gates},
+        "flags": service.open_flags(key), "reviews": service.store.reviews(key),
         "engine_run": service.engine_has_run()})
 
 
 @app.post("/case/{key}/simulate")
 async def simulate(key: str, request: Request):
     form = dict((await request.form()).items())
+    p = persona_of(request)
+    if p:
+        # Server-side attribution: the persona decides who recorded this, never the form.
+        t = form.get("type", "")
+        if not personas.may_record(p, t):
+            allowed = ", ".join(personas.EVENT_ROLES.get(t, ())) or "nobody"
+            return go(f"/case/{key}", f"Not recorded: {p.role} can't record {t or 'this event'} "
+                                      f"(recorded by: {allowed}).", at="simulate")
+        form["actor_role"] = personas.EVENT_ACTOR_ROLE.get(t, p.role)
+        form["actor_name"] = p.name
     with svc().lock:
         return _simulate(key, form)
+
+
+def benefits_from_form(form: dict, eval_date: date) -> tuple[dict, Optional[str]]:
+    """The E&B payload from a form, plus an error when the response date is after the
+    evaluation date (the engine would ignore it, A8)."""
+    try:
+        rd = date.fromisoformat((form.get("response_date") or "").strip())
+    except ValueError:
+        rd = None
+    if rd is not None and rd > eval_date:
+        return {}, (f"response date {rd} is after the evaluation date {eval_date}, so the engine "
+                    f"would ignore it (A8). Use a date on or before {eval_date}.")
+    return {"response_date": form.get("response_date"), "payer": form.get("payer") or None,
+            "plan_product_raw": form.get("plan_product_raw") or None,
+            "member_id": form.get("member_id") or None,
+            "coverage_active_on_eval_date": {"true": True, "false": False}.get(form.get("active", "")),
+            "product_end_date": form.get("product_end_date") or None}, None
 
 
 def _simulate(key: str, form: dict):
@@ -263,20 +313,9 @@ def _simulate(key: str, form: dict):
             ev = svc().simulate(key, t, "confirmed", confirmed=confirmed,
                                 epic_reference=form.get("epic_reference"), **kw)
         elif t == "BENEFITS_RESPONSE":
-            eval_date = svc().policy.eval_date
-            try:
-                rd = date.fromisoformat((form.get("response_date") or "").strip())
-            except ValueError:
-                rd = None
-            if rd is not None and rd > eval_date:
-                return go(f"/case/{key}?form=benefits", f"Not recorded: response date {rd} is after the "
-                          f"evaluation date {eval_date}, so the engine would ignore it (A8). "
-                          f"Use a date on or before {eval_date}.", at="sim-benefits")
-            b = {"response_date": form.get("response_date"), "payer": form.get("payer") or None,
-                 "plan_product_raw": form.get("plan_product_raw") or None,
-                 "member_id": form.get("member_id") or None,
-                 "coverage_active_on_eval_date": {"true": True, "false": False}.get(form.get("active", "")),
-                 "product_end_date": form.get("product_end_date") or None}
+            b, late = benefits_from_form(form, svc().policy.eval_date)
+            if late:
+                return go(f"/case/{key}?form=benefits", f"Not recorded: {late}", at="sim-benefits")
             ev = svc().simulate(key, t, "received", benefits=b, **kw)
         else:
             ev = svc().simulate(key, t, form.get("decision", ""), **kw)
@@ -294,14 +333,29 @@ def _simulate(key: str, form: dict):
 
 
 @app.post("/case/{key}/handoff/{kind}")
-def handoff(key: str, kind: str):
+async def handoff(key: str, kind: str, request: Request):
     if kind not in handoffs.KINDS:
         raise HTTPException(404)
-    try:
-        with svc().lock:
-            r = handoffs.send(svc(), key, kind)
-    except sqlite3.IntegrityError:
-        return go(f"/case/{key}", CONCURRENT_WRITE, at="handoffs")
+    form = dict((await request.form()).items())
+    back = form.get("back", "")
+    back_url, at = (back, None) if back in ("/work",) else (f"/case/{key}", "handoffs")
+    p = persona_of(request)
+    label = handoffs.KINDS[kind][0]
+    with svc().lock:
+        try:
+            svc().store.case(key)
+        except KeyError:
+            raise HTTPException(404)
+        if not personas.may_send(p, kind):
+            allowed = ", ".join(personas.HANDOFF_ROLES.get(kind, ())) or "nobody"
+            reason = f"role {p.role} may not send {label} (sent by: {allowed})"
+            svc().store.audit(key, wall_clock(), personas.label(p), "handoff_blocked",
+                              {"kind": label, "failing_gates": [], "reason": reason})
+            return go(back_url, f"Not recorded: {reason}. Attempt recorded in the audit trail.", at=at)
+        try:
+            r = handoffs.send(svc(), key, kind, actor=actor_label(request, "UI user"))
+        except sqlite3.IntegrityError:
+            return go(back_url, CONCURRENT_WRITE, at=at)
     label = handoffs.KINDS[kind][0]
     msgs = {
         "sent": f"Sent {label}: {r.get('handoff_id')} recorded in outbox (MOCK STUB); "
@@ -313,7 +367,328 @@ def handoff(key: str, kind: str):
                    "Attempt recorded in the audit trail.",
         "not_applicable": f"Not applicable: {r.get('reason')}",
     }
-    return go(f"/case/{key}", msgs[r["result"]], at="handoffs")
+    msg = msgs[r["result"]]
+    return go(back_url, f"{key}: {msg}" if back_url == "/work" else msg, at=at)
+
+
+# ---------------------------------------------------------------- personas + my work
+
+@app.post("/persona")
+def choose_persona(persona: str = Form("")):
+    p = personas.get(persona)
+    r = RedirectResponse(p.landing if p else "/", status_code=303)
+    if p:
+        r.set_cookie(personas.COOKIE, p.key, httponly=True, samesite="lax")
+    else:
+        r.delete_cookie(personas.COOKIE)
+    return r
+
+
+def _anchor(code: str) -> str:
+    """Where on the case page the persona acts on this item."""
+    if code.startswith(("CLIN_", "ID_")) or code in ("PA_AWAITING", "PA_DENIED"):
+        return "simulate"
+    if code.startswith("COV_PENDING") or code in ("COV_CONFLICT", "PA_UNKNOWN"):
+        return "sim-benefits"
+    return "handoffs"
+
+
+def work_items(service: Service, p: personas.Persona) -> list[dict]:
+    """The persona's open items: one per (case, next action) they own, plus fact flags of the
+    kind they review. Sorted urgent → undetermined → expedited → routine, then oldest first."""
+    items = []
+    holders = service.holders()
+    for s in service.states():
+        ef = service.case(s.patient_key)
+        base = {"s": s, "key": s.patient_key, "name": patient_name(ef),
+                "age": business_days(ef.received_at, service.policy.eval_date),
+                "rank": personas.PRIORITY_ORDER.get(s.priority.status, 9)}
+        mine = [a for a in s.actions if personas.owns(p, a)]
+        others = sorted({a.owner_role for a in s.actions if not personas.owns(p, a)})
+        for a in mine:
+            code = a.reason_code
+            items.append({**base, "code": code, "title": a.action, "detail": a.detail,
+                          "owner": a.owner_role, "others": others,
+                          "primary": personas.PRIMARY_HANDOFF.get(code),
+                          "waiting": panels.waiting_on(service, s.patient_key, code),
+                          "claim": _claim_view(holders.get((s.patient_key, code)), p),
+                          "href": (f"/work/{s.patient_key}/{code}" if panels.kind(code)
+                                   else f"/case/{s.patient_key}#{_anchor(code)}")})
+        if p.fact_flags:
+            for f in service.open_flags(s.patient_key):
+                if fr.is_clinical(f.field) == (p.fact_flags == "clinical"):
+                    items.append({**base, "code": f"FACT_{f.field}", "title": f"Check {f.field} on {f.doc_id}",
+                                  "detail": f.message, "owner": p.role, "others": others, "primary": None,
+                                  "waiting": None, "claim": None,
+                                  "href": page_url(ef.source_file, f.page, s.patient_key) + f"#fact-{f.doc_id}-{f.field}"})
+    return sorted(items, key=lambda i: (i["rank"], -i["age"], i["key"], i["code"]))
+
+
+@app.get("/work")
+def my_work(request: Request, msg: Optional[str] = None):
+    p = persona_of(request)
+    if p is None:
+        return go("/", "Choose who you are (top right) to see your own work list.")
+    service = svc()
+    run = service.engine_has_run()
+    items = work_items(service, p) if run and not p.read_only else []
+    recalls = ([o for o in service.store.outbox() if o["work_item"]["type"] == handoffs.RECALL_TYPE]
+               if p.role == "Scheduler" else [])
+    return templates.TemplateResponse(request, "work.html", {
+        "p": p, "items": [i for i in items if not i["waiting"]],
+        "waiting": [i for i in items if i["waiting"]], "recalls": recalls, "msg": msg, "engine_run": run})
+
+
+def _claim_view(c: Optional[dict], p: personas.Persona) -> Optional[dict]:
+    if c is None:
+        return None
+    mine = (c["actor_name"], c["actor_role"]) == (p.name, p.role)
+    return {**c, "mine": mine, "label": f"{c['actor_name']} ({c['actor_role']})"}
+
+
+def _next_url(service: Service, p: personas.Persona, done: tuple[str, str]) -> str:
+    """The persona's next active item, preferring another case over the one just handled, and
+    never an item someone else has claimed."""
+    items = [i for i in work_items(service, p) if not i["waiting"] and (i["key"], i["code"]) != done
+             and not (i["claim"] and not i["claim"]["mine"])]
+    other = [i for i in items if i["key"] != done[0]]
+    nxt = (other or items or [None])[0]
+    return nxt["href"] if nxt else "/work"
+
+
+def _find_item(service: Service, p: personas.Persona, key: str, code: str) -> Optional[dict]:
+    return next((i for i in work_items(service, p) if i["key"] == key and i["code"] == code), None)
+
+
+@app.get("/work/{key}/{code}")
+def work_panel(request: Request, key: str, code: str, msg: Optional[str] = None):
+    p = persona_of(request)
+    if p is None:
+        return go(f"/case/{key}")
+    service = svc()
+    item = _find_item(service, p, key, code) if service.engine_has_run() else None
+    if item is None:
+        return go("/work", f"{key} {code} is not on your list ({p.role}): it may be done or owned by another role.")
+    if not panels.kind(code):
+        return go(item["href"])
+    s, ef = item["s"], service.case(key)
+    active = [i for i in work_items(service, p) if not i["waiting"]]
+    pos = next((n for n, i in enumerate(active, 1) if (i["key"], i["code"]) == (key, code)), None)
+    return templates.TemplateResponse(request, "panel.html", {
+        "p": p, "i": item, "s": s, "ef": ef, "x": panels.build(code, s, ef, service),
+        "pos": pos, "total": len(active), "msg": msg, "policy": service.policy,
+        "skip": _next_url(service, p, (key, code)),
+        "products": [pl.product for pl in service.policy.plans.values()]})
+
+
+HANDOFF_OPS = {"request": "missing_info", "pa_packet": "pa_packet", "clinician_review": "clinician_review",
+               "schedule": "schedule"}
+
+
+@app.post("/work/{key}/{code}")
+async def work_act(request: Request, key: str, code: str):
+    p = persona_of(request)
+    if p is None:
+        return go(f"/case/{key}", "Choose who you are (top right) to work from a panel.")
+    form = dict((await request.form()).items())
+    here = f"/work/{key}/{code}"
+    service = svc()
+    with service.lock:
+        item = _find_item(service, p, key, code) if service.engine_has_run() else None
+        if item is None:
+            return go("/work", f"Not recorded: {key} {code} is not on your list ({p.role}).")
+        k, op = panels.kind(code), form.get("op", "")
+        if item["claim"] and not item["claim"]["mine"]:
+            c = item["claim"]
+            return go(here, f"Not recorded: claimed by {c['label']} at {c['at']}. Take it over "
+                            "(with a reason) to act on it.")
+        if k is None or op not in panels.OPS[k]:
+            return go(here, f"Not recorded: “{op or 'nothing'}” doesn't settle {code}.")
+        note = (form.get("note") or "").strip()
+        try:
+            if op == "decide":
+                decision = form.get("decision", "")
+                if decision not in dict(panels.DECISIONS):
+                    return go(here, "Not recorded: choose a decision.")
+                if not note:
+                    return go(here, "Not recorded: a clinical decision needs a note saying what you reviewed.")
+                ev = service.simulate(key, "CLINICAL_REVIEW_DECISION", decision, actor_role=p.role,
+                                      actor_name=p.name, note=note)
+                done = f"{ev.event_id}: {key} {decision.replace('_', ' ')} recorded by {personas.label(p)}."
+            elif op == "identity":
+                fields = [f["field"] for f in panels.identity(item["s"], service.case(key))["fields"]]
+                confirmed, missing = {}, []
+                for f in fields:
+                    v = form.get(f"confirmed_{f}", "")
+                    v = (form.get(f"confirmed_{f}_other", "") if v == "__other" else v).strip()
+                    (confirmed.__setitem__(f, v) if v else missing.append(f))
+                if missing:
+                    return go(here, f"Not recorded: confirm a value for {', '.join(missing)} "
+                                    "(every disagreeing identifier must be settled).")
+                ev = service.simulate(key, "IDENTITY_RESOLUTION", "confirmed", actor_role=p.role,
+                                      actor_name=p.name, note=note or None, confirmed=confirmed,
+                                      epic_reference=(form.get("epic_reference") or "").strip() or None)
+                done = f"{ev.event_id}: identity confirmed for {key} by {personas.label(p)}."
+            elif op == "benefits":
+                b, late = benefits_from_form(form, service.policy.eval_date)
+                if late:
+                    return go(here, f"Not recorded: {late}")
+                ev = service.simulate(key, "BENEFITS_RESPONSE", "received",
+                                      actor_role=personas.EVENT_ACTOR_ROLE["BENEFITS_RESPONSE"],
+                                      actor_name=p.name, note=note or None, benefits=b)
+                done = f"{ev.event_id}: E&B response logged for {key} by {personas.label(p)}."
+            elif op == "payer":
+                decision = form.get("decision", "")
+                if decision not in dict(panels.PAYER_DECISIONS):
+                    return go(here, "Not recorded: choose the payer's decision.")
+                if not note:
+                    return go(here, "Not recorded: a payer decision needs the payer reference "
+                                    "(portal or fax reference) in the note.")
+                if not personas.may_record(p, "PAYER_PA_DECISION"):
+                    return go(here, f"Not recorded: {p.role} doesn't record payer decisions.")
+                ev = service.simulate(key, "PAYER_PA_DECISION", decision, actor_role=p.role,
+                                      actor_name=p.name, note=note)
+                done = f"{ev.event_id}: payer {decision} recorded for {key} by {personas.label(p)}."
+            else:  # a handoff does the job
+                hk = HANDOFF_OPS[op]
+                if not personas.may_send(p, hk):
+                    return go(here, f"Not recorded: {p.role} doesn't send {handoffs.KINDS[hk][0]}.")
+                r = handoffs.send(service, key, hk, actor=personas.label(p))
+                if r["result"] == "blocked":
+                    return go(here, f"BLOCKED: failing gates {', '.join(r.get('failing_gates', []))}. "
+                                    "Attempt recorded in the audit trail.")
+                if r["result"] == "not_applicable":
+                    return go(here, f"Not recorded: {r.get('reason')}")
+                done = (f"{r['handoff_id']}: {handoffs.KINDS[hk][0]} for {key} sent by {personas.label(p)}."
+                        if r["result"] == "sent" else f"Already sent as {r['handoff_id']}; nothing new recorded.")
+        except (ValidationError, ValueError) as e:
+            msg = e.errors()[0]["msg"] if isinstance(e, ValidationError) else str(e)
+            return go(here, f"Not recorded: {msg}")
+        except sqlite3.IntegrityError:
+            return go(here, CONCURRENT_WRITE)
+        nxt = _next_url(service, p, (key, code))
+    return go(nxt, done + ("" if nxt != "/work" else " Your list is clear."))
+
+
+@app.post("/work/{key}/{code}/{what}")
+async def work_claim(request: Request, key: str, code: str, what: str):
+    if what not in ("claim", "release"):
+        raise HTTPException(404)
+    p = persona_of(request)
+    if p is None:
+        return go(f"/case/{key}", "Choose who you are (top right) to claim work.")
+    form = dict((await request.form()).items())
+    here = f"/work/{key}/{code}"
+    service = svc()
+    with service.lock:
+        item = _find_item(service, p, key, code) if service.engine_has_run() else None
+        if item is None:
+            return go("/work", f"Not recorded: {key} {code} is not on your list ({p.role}).")
+        try:
+            action = service.claim(key, code, p.role, p.name, takeover=bool(form.get("takeover")),
+                                   release=what == "release", note=form.get("note"))
+        except ValueError as e:
+            return go(here, f"Not recorded: {e}")
+    words = {"claim": "Claimed", "takeover": "Taken over", "release": "Released"}[action]
+    return go(here, f"{words}: {key} {code} by {personas.label(p)}.")
+
+
+# ---------------------------------------------------------------- auditor: case timeline
+
+TIMELINE_LABELS = {
+    "loaded": "Packet loaded", "evaluation": "Engine evaluated", "state_change": "State changed",
+    "sim_event": "Human decision (SIMULATED)", "correction": "Fact review",
+    "handoff_attempt": "Handoff attempted", "handoff_sent": "Handoff sent",
+    "handoff_blocked": "Handoff blocked", "delivery_attempt": "Delivery attempt",
+    "dead_letter": "Dead letter", "outage": "Receiver outage (SIMULATED)",
+    "claim": "Item claimed", "takeover": "Item taken over", "release": "Item released",
+}
+
+
+def _timeline_summary(kind: str, d: dict) -> str:
+    if kind == "evaluation":
+        fg = d.get("failing_gates") or []
+        return (f"{d.get('priority')} · identity {d.get('identity')} · coverage {d.get('coverage')} · "
+                f"{'holds ' + ', '.join(fg) if fg else 'no holds'} · state {d.get('state_hash')}")
+    if kind == "state_change":
+        return "; ".join(f"{x['label']}: {x['from']} → {x['to']}" for x in format_diff(d.get("diff", {})))
+    if kind == "sim_event":
+        return f"{d.get('event_id')} {d.get('type')} {d.get('decision')}" + (f": {d['note']}" if d.get("note") else "")
+    if kind == "correction":
+        if d.get("action") == "correct":
+            return (f"{d.get('review_id')} corrected {d.get('doc_id')}.{d.get('field')}: {d.get('before')} → "
+                    f"{d.get('after')} (“{d.get('quote_text')}”, p.{d.get('quote_page')}): {d.get('reason')}")
+        return f"{d.get('review_id')} confirmed {d.get('doc_id')}.{d.get('field')}" + (f": {d['reason']}" if d.get("reason") else "")
+    if kind in ("handoff_sent", "handoff_attempt", "handoff_blocked"):
+        bits = [d.get("handoff_id"), d.get("kind")]
+        if d.get("failing_gates"):
+            bits.append("failing " + ", ".join(d["failing_gates"]))
+        if d.get("reason"):
+            bits.append(d["reason"])
+        return " · ".join(str(b) for b in bits if b)
+    return ", ".join(f"{k}={v}" for k, v in d.items() if not isinstance(v, (dict, list)))[:240]
+
+
+def replay(service: Service, key: str) -> dict:
+    """Recompute the case from source facts + reviews + events + config and compare with the
+    last audited evaluation. A mismatch means config or code changed since it was recorded."""
+    last = service.store.last_evaluation(key)
+    if last is None:
+        return {"matches": None, "text": "Not evaluated yet: nothing to replay."}
+    now = state_hash(service.state(key))
+    ok = now == last.get("state_hash")
+    return {"matches": ok, "recorded": last.get("state_hash"), "recomputed": now,
+            "recorded_config": last.get("config_sha256"), "current_config": service.config_sha256,
+            "text": ("Replay matches the last audited evaluation." if ok else
+                     "Replay does not match the last audited evaluation: config or code changed since "
+                     "it was recorded. Re-run the engine to record the current state.")}
+
+
+def timeline(service: Service, key: str) -> list[dict]:
+    row = service.store.db.execute("SELECT loaded_at, source_file FROM cases WHERE patient_key=?", (key,)).fetchone()
+    out = [{"n": 0, "kind": "loaded", "at": row[0], "actor": "system (ingest)",
+            "summary": f"Extracted facts loaded from {row[1]}", "detail": {}, "_order": (-1, 0, 0)}]
+    for r in reversed(service.store.audit_rows(key)):          # oldest first
+        out.append({"n": r["audit_id"], "kind": r["kind"], "at": r["at"], "actor": r["actor"],
+                    "summary": _timeline_summary(r["kind"], r["detail"]), "detail": r["detail"],
+                    "_order": (r["audit_id"], 0, 0)})
+    for c in service.store.claims(key):    # placed right after the audit row they followed
+        out.append({"n": None, "kind": c["action"], "at": c["at"],
+                    "actor": f"{c['actor_name']} ({c['actor_role']})",
+                    "summary": c["code"] + (f": {c['note']}" if c["note"] else ""),
+                    "detail": {"code": c["code"], "note": c["note"]},
+                    "_order": (c["after_audit_id"], 1, c["seq"])})
+    out.sort(key=lambda e: e["_order"])
+    for e in out:
+        del e["_order"]
+    return out
+
+
+@app.get("/case/{key}/timeline")
+def case_timeline(request: Request, key: str, kind: str = "all"):
+    service = svc()
+    try:
+        ef = service.store.case(key)
+    except KeyError:
+        raise HTTPException(404)
+    entries = timeline(service, key)
+    kinds = sorted({e["kind"] for e in entries})
+    shown = entries if kind == "all" else [e for e in entries if e["kind"] == kind]
+    return templates.TemplateResponse(request, "timeline.html", {
+        "key": key, "name": patient_name(ef), "entries": shown, "total": len(entries), "kinds": kinds,
+        "kind": kind, "labels": TIMELINE_LABELS, "replay": replay(service, key),
+        "reviews": service.store.reviews(key)})
+
+
+@app.get("/case/{key}/timeline.json")
+def case_timeline_json(key: str):
+    service = svc()
+    try:
+        service.store.case(key)
+    except KeyError:
+        raise HTTPException(404)
+    return JSONResponse({"patient_key": key, "label": "SYNTHETIC – MOCK DATA",
+                         "replay": replay(service, key), "entries": timeline(service, key)})
 
 
 # ---------------------------------------------------------------- pages, outbox, metrics
@@ -333,7 +708,7 @@ def case_for_page(service: Service, file: str, page: int, case: Optional[str]) -
 
 @app.get("/page/{file}/{page}")
 def page_viewer(request: Request, file: str, page: int, q: Optional[str] = None,
-                field: Optional[str] = None, case: Optional[str] = None):
+                field: Optional[str] = None, case: Optional[str] = None, msg: Optional[str] = None):
     txt = PAGES / file / f"{page}.txt"
     if "/" in file or ".." in file or not txt.exists():
         raise HTTPException(404, "Page not ingested. Run `make ingest`.")
@@ -348,15 +723,90 @@ def page_viewer(request: Request, file: str, page: int, q: Optional[str] = None,
     key = case_for_page(svc(), file, page, case)
     here = []
     if key:
-        ef = svc().store.case(key)
+        ef = svc().case(key)
+        reviews = svc().store.reviews(key)
+        flags = svc().flags(key)
+        open_ = svc().open_flags(key)
         for d in ef.documents:
             if page in d.pages:
                 here.append({"d": d, "unused": why_unused(d, svc().policy),
-                             "quotes": [x for x in d.quotes if x.page == page]})
+                             "quotes": [x for x in d.quotes if x.page == page],
+                             "rows": review_rows(d, page, flags, open_, reviews)})
     norm_q = " ".join(q.split()) if q else None
     return templates.TemplateResponse(request, "page.html", {
         "file": file, "page": page, "q": q, "text": text, "parts": parts, "key": key, "field": field,
-        "here": here, "norm_q": norm_q})
+        "here": here, "norm_q": norm_q, "msg": msg, "review_roles": fr.REVIEW_ROLES,
+        "clinical_roles": fr.CLINICAL_ROLES})
+
+
+def _form_value(v) -> str:
+    """A fact value as the correction box shows it (and parse_value reads it back)."""
+    if v is None:
+        return ""
+    if isinstance(v, (bool, list, dict)):
+        return json.dumps(v)
+    return str(v)
+
+
+def review_rows(d, page: int, flags, open_, reviews) -> list[dict]:
+    """One row per fact a reviewer can check on this page: every field quoted here, plus any
+    flagged field of this document, plus its date and signer."""
+    order = [x.field for x in d.quotes if x.page == page] + [f.field for f in flags if f.doc_id == d.doc_id]
+    order += [f for f in ("date", "signer") if f not in order and fr.current_value(d, f) is not None]
+    rows = []
+    for f in dict.fromkeys(order):
+        correctable = f in fr.correctable_fields(d.doc_type)
+        rows.append({
+            "field": f, "quotes": [x for x in d.quotes if x.field == f],
+            "value": fr.current_value(d, f) if correctable else None,
+            "form_value": _form_value(fr.current_value(d, f)) if correctable else "",
+            "correctable": correctable, "identifier": f in fr.IDENTIFIER_FIELDS,
+            "clinical": fr.is_clinical(f),
+            "flags": [x for x in open_ if x.doc_id == d.doc_id and x.field == f],
+            "last": fr.latest_review(reviews, d.doc_id, f),
+        })
+    return rows
+
+
+@app.post("/case/{key}/fact-review")
+async def fact_review(key: str, request: Request):
+    form = dict((await request.form()).items())
+    p = persona_of(request)
+    if p:
+        form["actor_role"], form["actor_name"] = p.role, p.name
+    back_file, back_page = form.get("back_file", ""), form.get("back_page", "")
+    try:
+        page = int(form.get("quote_page") or back_page or 0)
+    except ValueError:
+        page = 0
+    with svc().lock:
+        try:
+            ef = svc().store.case(key)
+        except KeyError:
+            raise HTTPException(404)
+        back = page_url(back_file or ef.source_file, int(back_page or page or 1), key)
+        recalls_before = {o["handoff_id"] for o in svc().store.outbox(key)
+                          if o["work_item"]["type"] == handoffs.RECALL_TYPE}
+        try:
+            r = svc().review_fact(
+                key, form.get("doc_id", ""), form.get("field", ""), form.get("action", ""),
+                actor_role=form.get("actor_role", ""), actor_name=form.get("actor_name", ""),
+                reason=form.get("reason"), value=form.get("value"),
+                quote_text=form.get("quote_text"), quote_page=page or None)
+        except ValueError as e:
+            return go(back, f"Not recorded: {e}")
+        except sqlite3.IntegrityError:
+            return go(back, CONCURRENT_WRITE)
+        new_recalls = [o["handoff_id"] for o in svc().store.outbox(key)
+                       if o["work_item"]["type"] == handoffs.RECALL_TYPE and o["handoff_id"] not in recalls_before]
+    if r.action == "confirm":
+        return go(back, f"{r.review_id}: {r.field} on {r.doc_id} confirmed by {r.actor_name} "
+                        f"({r.actor_role}). No fact changed.")
+    recalled = (f" Case is no longer sendable: scheduling handoff recalled automatically "
+                f"({', '.join(new_recalls)}).") if new_recalls else ""
+    return go(back, f"{r.review_id}: {r.field} on {r.doc_id} corrected to {_short(r.value)} by "
+                    f"{r.actor_name} ({r.actor_role}). The source extraction is unchanged; the case "
+                    f"was re-evaluated on the corrected facts and audited.{recalled}")
 
 
 @app.get("/pages/{file}/{page}.png")

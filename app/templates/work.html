@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% from "macros.html" import pri %}
+{% block title %}My work · {{ p.role }}{% endblock %}
+{% block content %}
+<section class="hero work-hero">
+  <div>
+    <p class="eyebrow">My work · {{ p.role }}</p>
+    <h1>{{ p.name }}</h1>
+    <p class="lede">{{ p.blurb }}</p>
+  </div>
+</section>
+
+{% if p.read_only %}
+  <div class="card"><p style="margin:0">This role is read-only, so it has no work list. Start from the <a href="{{ p.landing }}">{{ 'metrics' if p.landing == '/metrics' else 'queue' }}</a>.</p></div>
+{% elif not engine_run %}
+  <div class="card"><p style="margin:0">The engine has not run yet, so there is no work to route. Run all packets from the <a href="/">queue</a>.</p></div>
+{% else %}
+<p class="small muted">{{ items|length }} open item{{ 's' if items|length != 1 }}{% if items %} · <a href="{{ items[0].href }}">Start with the first →</a>{% endif %} · urgent first, then unable-to-determine, expedited, routine; oldest first within each. Every action you take here is recorded as {{ persona_label(p) }}.</p>
+<div class="table-card table-wrap">
+<table class="queue work">
+  <thead><tr><th>Priority</th><th>Case</th><th>What to do</th><th>Why</th><th class="num">Age (bd)</th><th>Also held by</th><th></th></tr></thead>
+  <tbody>
+  {% for i in items %}
+  <tr data-work="{{ i.key }}:{{ i.code }}">
+    <td>{{ pri(i.s.priority.status, i.s.priority.detail.label) }}</td>
+    <td class="who"><a href="/case/{{ i.key }}"><strong>{{ i.key }}</strong><span class="nm">{{ i.name }}</span></a></td>
+    <td class="wrap"><b>{{ i.title }}</b><span class="sub mono small" style="display:block">{{ i.code }}</span>{% if i.claim %}<span class="chip {{ 'ok' if i.claim.mine else 'warn' }}">{{ 'Claimed by you' if i.claim.mine else 'Claimed by ' ~ i.claim.label }}</span>{% endif %}</td>
+    <td class="wrap small">{{ i.detail or '' }}</td>
+    <td class="num">{{ i.age }}</td>
+    <td class="wrap">{% for o in i.others %}<span class="chip neutral" title="Read-only: owned by another role">Also held by {{ o }}</span>{% endfor %}</td>
+    <td class="work-go">
+      {% if i.primary and may_send(p, i.primary[0]) and not (i.claim and not i.claim.mine) %}
+      <form method="post" action="/case/{{ i.key }}/handoff/{{ i.primary[0] }}"><input type="hidden" name="back" value="/work"><button class="btn-small green">{{ i.primary[1] }}</button></form>
+      {% endif %}
+      <a href="{{ i.href }}" class="small">Open →</a>
+    </td>
+  </tr>
+  {% else %}<tr><td colspan="7" class="muted">Nothing waiting on {{ p.role }}.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+<section id="waiting">
+  <h3 class="section-title">Waiting on others <span class="muted small">{{ waiting|length }}</span></h3>
+  {% if waiting %}
+  <div class="table-card table-wrap"><table class="queue work small">
+    {% for i in waiting %}<tr data-work="{{ i.key }}:{{ i.code }}"><td>{{ pri(i.s.priority.status, i.s.priority.detail.label) }}</td><td><a href="{{ i.href }}"><strong>{{ i.key }}</strong></a> {{ i.name }}</td><td>{{ i.title }}</td><td>sent as <a href="/outbox/{{ i.waiting }}">{{ i.waiting }}</a></td><td class="num">{{ i.age }} bd</td></tr>{% endfor %}
+  </table></div>
+  {% else %}<p class="small muted">Nothing sent and awaiting a reply.</p>{% endif %}
+</section>
+{% if p.role == 'Scheduler' %}
+<section id="recalls">
+  <h3 class="section-title">Recalls <span class="muted small">{{ recalls|length }}</span></h3>
+  {% if recalls %}<div class="table-card table-wrap"><table class="queue work small">
+    {% for o in recalls %}<tr><td><a href="/case/{{ o.patient_key }}"><strong>{{ o.patient_key }}</strong></a></td><td><b>Release the slot:</b> {{ o.work_item.instruction }}</td><td>recalls <a href="/outbox/{{ o.work_item.original_handoff_id }}">{{ o.work_item.original_handoff_id }}</a> by <a href="/outbox/{{ o.handoff_id }}">{{ o.handoff_id }}</a></td><td>failing {{ o.work_item.failing_gates|join(', ') }}</td></tr>{% endfor %}
+  </table></div>{% else %}<p class="small muted">No recalls.</p>{% endif %}
+</section>
+{% endif %}
+{% endif %}
+{% endblock %}

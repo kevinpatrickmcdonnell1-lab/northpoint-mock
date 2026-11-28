@@ -1,4 +1,4 @@
-"""SQLite store: cases (source facts), sim_events + audit_log (append-only), outbox.
+"""SQLite store: cases (source facts), sim_events + fact_reviews + audit_log (append-only), outbox.
 
 Append-only and immutability are enforced by triggers, not just by convention.
 """
@@ -9,6 +9,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Optional
 
+from app.fact_review import FactReview
 from app.models import ExtractionFile, SimEvent
 
 SCHEMA = """
@@ -32,11 +33,21 @@ CREATE TABLE IF NOT EXISTS deliveries (
   seq INTEGER PRIMARY KEY AUTOINCREMENT, handoff_id TEXT NOT NULL, attempt INTEGER NOT NULL,
   at TEXT NOT NULL, result TEXT NOT NULL CHECK (result IN ('delivered','failed','dead_letter','requeued')),
   error TEXT);
+CREATE TABLE IF NOT EXISTS fact_reviews (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT, review_id TEXT UNIQUE NOT NULL, patient_key TEXT NOT NULL,
+  doc_id TEXT NOT NULL, field TEXT NOT NULL, action TEXT NOT NULL CHECK (action IN ('confirm','correct')),
+  review_json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS claims (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT, patient_key TEXT NOT NULL, code TEXT NOT NULL,
+  action TEXT NOT NULL CHECK (action IN ('claim','takeover','release')),
+  actor_role TEXT NOT NULL, actor_name TEXT NOT NULL, note TEXT, at TEXT NOT NULL,
+  after_audit_id INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS receiver_outages (
   seq INTEGER PRIMARY KEY AUTOINCREMENT, receiving_system TEXT NOT NULL, down INTEGER NOT NULL,
   at TEXT NOT NULL, note TEXT, simulated INTEGER NOT NULL CHECK (simulated = 1));
 """
-for _t in ("cases", "sim_events", "audit_log", "outbox", "deliveries", "receiver_outages"):
+for _t in ("cases", "sim_events", "audit_log", "outbox", "deliveries", "receiver_outages",
+           "fact_reviews", "claims"):
     SCHEMA += f"""
 CREATE TRIGGER IF NOT EXISTS {_t}_no_update BEFORE UPDATE ON {_t}
   BEGIN SELECT RAISE(ABORT, '{_t} is append-only'); END;
@@ -86,6 +97,35 @@ class Store:
 
     def event_count(self) -> int:
         return self.db.execute("SELECT COUNT(*) FROM sim_events").fetchone()[0]
+
+    # ---- human fact reviews (append-only; the extraction in `cases` never changes) --------
+    def add_review(self, r: FactReview) -> None:
+        self.db.execute("INSERT INTO fact_reviews (review_id, patient_key, doc_id, field, action, "
+                        "review_json) VALUES (?,?,?,?,?,?)",
+                        (r.review_id, r.patient_key, r.doc_id, r.field, r.action, r.model_dump_json()))
+
+    def reviews(self, key: Optional[str] = None) -> list[FactReview]:
+        q, args = "SELECT review_json FROM fact_reviews", ()
+        if key:
+            q, args = q + " WHERE patient_key=?", (key,)
+        return [FactReview.model_validate_json(r[0]) for r in self.db.execute(q + " ORDER BY seq", args)]
+
+    def review_count(self) -> int:
+        return self.db.execute("SELECT COUNT(*) FROM fact_reviews").fetchone()[0]
+
+    # ---- work-item claims (append-only; the current holder is derived) -----------
+    def add_claim(self, key: str, code: str, action: str, actor_role: str, actor_name: str,
+                  at: str, note: Optional[str] = None) -> None:
+        last = self.db.execute("SELECT COALESCE(MAX(audit_id), 0) FROM audit_log").fetchone()[0]
+        self.db.execute("INSERT INTO claims (patient_key, code, action, actor_role, actor_name, note, at, "
+                        "after_audit_id) VALUES (?,?,?,?,?,?,?,?)",
+                        (key, code, action, actor_role, actor_name, note, at, last))
+
+    def claims(self, key: Optional[str] = None) -> list[dict]:
+        q, args = "SELECT * FROM claims", ()
+        if key:
+            q, args = q + " WHERE patient_key=?", (key,)
+        return [dict(r) for r in self.db.execute(q + " ORDER BY seq", args)]
 
     # ---- audit (append-only) --------------------------------------------------
     def audit(self, key: Optional[str], at: str, actor: str, kind: str, detail: dict[str, Any]) -> None:

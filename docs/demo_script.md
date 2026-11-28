@@ -1,5 +1,7 @@
 # Demo script (75-minute session, PLAN §11)
 
+**Persona version:** [demo_script_personas.md](demo_script_personas.md) tells the same set as a relay between roles.
+
 **Dataset:** `make demo` serves the **real** packets (R01–R10). This walkthrough is written for them. The mock-set walkthrough is kept in the [Appendix](#appendix-mock-set-walkthrough).
 
 **Every number, ID and status below comes from running these steps.** `tests/test_demo_script_real.py` runs the same sequence, in this order, through the service layer and asserts each stated outcome, and also checks that this file states them. If you change a step, change the test too.

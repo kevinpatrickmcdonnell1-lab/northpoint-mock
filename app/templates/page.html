@@ -18,12 +18,49 @@
       </div>
     {% endif %}
     {% if here %}
+    <div class="card reviewer-bar" style="margin-bottom:14px">
+      <h3>Reviewer</h3>
+      <p class="small muted" style="margin:0 0 8px">Confirm a fact when the page says what it records; correct it when it doesn't. Every review is stored with your name, role and time, and audited.</p>
+      {% set me = persona_of(request) %}
+      {% if me %}<p class="small persona-note" style="margin:0">Reviewing as {{ persona_label(me) }}.{% if me.role not in review_roles %} This role doesn't review facts.{% endif %}</p>
+      <input type="hidden" id="rv-role" value="{{ me.role }}"><input type="hidden" id="rv-name" value="{{ me.name }}">
+      {% else %}
+      <label class="small">Role <select id="rv-role">{% for r in review_roles %}<option>{{ r }}</option>{% endfor %}</select></label>
+      <label class="small">Name <input id="rv-name" placeholder="your name"></label>
+      {% endif %}
+    </div>
     <div class="card facts-here" style="margin-bottom:14px">
       <h3>Facts extracted from this page</h3>
       {% for x in here %}{% set d = x.d %}
         <p style="margin:10px 0 4px"><b>{{ TITLES[d.doc_type] }}</b> <span class="muted small">{{ d.date or 'undated' }} · {% if d.doc_type in ('registration_face_sheet','insurance_card','benefits_response') %}admin record{% elif d.signed %}signed {{ d.signer }}{% else %}unsigned{% endif %}</span>
           {% if x.unused %}<span class="chip neutral">{{ x.unused }}</span>{% endif %}</p>
-        {% for qt in x.quotes %}<div class="q {% if norm_q and ' '.join(qt.text.split()) == norm_q %}cited{% endif %}"><span class="f">{{ qt.field }}</span>“{{ qt.text }}”</div>{% endfor %}
+        {% for r in x.rows %}
+        <div class="fact-row{% if r.flags %} flagged{% endif %}" id="fact-{{ d.doc_id }}-{{ r.field }}">
+          {% for qt in r.quotes if qt.page == page %}<div class="q {% if norm_q and ' '.join(qt.text.split()) == norm_q %}cited{% endif %}"><span class="f">{{ r.field }}{% if r.correctable %} = <b>{{ r.form_value or 'null' }}</b>{% endif %}</span>“{{ qt.text }}”</div>
+          {% else %}<div class="q"><span class="f">{{ r.field }}{% if r.correctable %} = <b>{{ r.form_value or 'null' }}</b>{% endif %}</span><span class="muted">{% if r.quotes %}quoted on {% for qt in r.quotes %}p.{{ qt.page }} {% endfor %}{% else %}no quote of its own{% endif %}</span></div>{% endfor %}
+          {% for f in r.flags %}<p class="small st st-blocked fact-flag">Fact check: {{ f.message }}</p>{% endfor %}
+          {% if r.last %}<p class="small st {{ 'st-pass' if r.last.action == 'confirm' else 'st-pending' }} fact-status">{{ r.last.review_id }} · {{ 'confirmed' if r.last.action == 'confirm' else 'corrected' }} by {{ r.last.actor_name }} ({{ r.last.actor_role }}){% if r.last.reason %}: {{ r.last.reason }}{% endif %}</p>{% endif %}
+          <form method="post" action="/case/{{ key }}/fact-review" class="fact-form" data-reviewer>
+            <input type="hidden" name="doc_id" value="{{ d.doc_id }}"><input type="hidden" name="field" value="{{ r.field }}">
+            <input type="hidden" name="back_file" value="{{ file }}"><input type="hidden" name="back_page" value="{{ page }}">
+            <input type="hidden" name="quote_page" value="{{ page }}">
+            <input type="hidden" name="actor_role"><input type="hidden" name="actor_name">
+            {% if r.clinical %}<span class="small muted">clinical fact · {{ clinical_roles|join(' / ') }} only</span>{% endif %}
+            <div class="fact-actions">
+              <input name="reason" placeholder="{{ 'Why it is right (required: flagged)' if r.flags else 'Note (optional)' }}" class="fact-note">
+              <button name="action" value="confirm" class="btn-small">Confirm</button>
+            </div>
+            {% if r.identifier %}<p class="small muted">Identifier: disagreements are settled by Identity resolution on the case page, not by editing the page's facts.</p>
+            {% elif r.correctable %}
+            <details class="fact-correct"><summary class="small">Correct…</summary>
+              <label class="small">Value <input name="value" value="{{ r.form_value }}" class="mono"></label>
+              <label class="small">Supporting text, copied exactly from p.{{ page }} <textarea name="quote_text" rows="2"></textarea></label>
+              <p class="small muted">The note above is the reason (required). The source extraction is not changed: the correction is stored separately and the case is re-evaluated on it.</p>
+              <button name="action" value="correct" class="btn-small">Record correction</button>
+            </details>{% endif %}
+          </form>
+        </div>
+        {% endfor %}
         {% set ids = d.identifiers.model_dump(exclude_none=True) %}
         {% if ids %}<div class="small muted" style="margin-top:4px">Identifiers: {% for k, v in ids.items() %}<span class="mono">{{ k }}={{ v }}</span>{% if not loop.last %} · {% endif %}{% endfor %}</div>{% endif %}
       {% endfor %}
@@ -35,4 +72,18 @@
     </details>
   </div>
 </section>
+<script>
+(function () {
+  var role = document.getElementById('rv-role'), name = document.getElementById('rv-name');
+  if (!role) return;
+  var picked = role.tagName === 'SELECT';   // presenter mode: remember the last reviewer
+  if (picked) { try { role.value = localStorage.getItem('rv-role') || role.value; name.value = localStorage.getItem('rv-name') || ''; } catch (e) {} }
+  document.querySelectorAll('form[data-reviewer]').forEach(function (f) {
+    f.addEventListener('submit', function () {
+      f.actor_role.value = role.value; f.actor_name.value = name.value;
+      if (picked) { try { localStorage.setItem('rv-role', role.value); localStorage.setItem('rv-name', name.value); } catch (e) {} }
+    });
+  });
+})();
+</script>
 {% endblock %}

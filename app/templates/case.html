@@ -5,9 +5,9 @@
 {% set failing = s.gates|rejectattr('passed')|map(attribute='gate')|list %}
 
 <section class="case-head">
-  <div class="crumbs"><a href="/">Queue</a> / {{ s.patient_key }}</div>
+  <div class="crumbs"><a href="/">Queue</a> / {{ s.patient_key }} · <a href="/case/{{ s.patient_key }}/timeline">Audit timeline →</a></div>
   <h1>{{ name }} <span class="key">{{ s.patient_key }} · {{ ef.packet_id }}</span></h1>
-  <p class="meta">{{ procedure }} · received {{ ef.received_at }} via {{ ef.received_channel|replace('_',' ') }} · site {{ ef.ordering_site or 'not stated' }} · age {{ age }} business days{% if engine_run %} · {{ s.plan.detail.product or 'plan unresolved' }}{% endif %}</p>
+  <p class="meta">{{ procedure }} · received {{ ef.received_at }} via {{ ef.received_channel|replace('_',' ') }} · site {{ ef.ordering_site or 'not stated' }} · age {{ age }} business days{% if engine_run and not (persona_of(request) and persona_of(request).clinical) %} · {{ s.plan.detail.product or 'plan unresolved' }}{% endif %}</p>
   {% if engine_run %}
   <div class="statusbar">
     <div class="it"><span>Clinical priority</span>{{ pri(s.priority.status, s.priority.detail.label) }}</div>
@@ -31,7 +31,7 @@
 
 {# =============================================================== LAYER 1 #}
 <section class="layer" id="layer-1">
-  {% set stats1 %}<b>{{ pages_total }}</b> pages → <b>{{ ef.documents|length }}</b> documents<br>{{ quotes_total }} cited quotes · {{ ef.corrections|length }} corrections{% endset %}
+  {% set stats1 %}<b>{{ pages_total }}</b> pages → <b>{{ ef.documents|length }}</b> documents<br>{{ quotes_total }} cited quotes · {{ ef.corrections|length + reviews|selectattr('action','equalto','correct')|list|length }} corrections{% if flags %} · <b>{{ flags|length }} to check</b>{% endif %}{% endset %}
   {{ layer_head(1, stats1) }}
   {{ lens(1) }}
 
@@ -52,6 +52,19 @@
       </div>
     </article>
   {% endfor %}
+  </div>
+
+  <h3 class="section-title" id="fact-review">Fact review</h3>
+  <div class="card">
+    {% if flags %}
+      <p class="small" style="margin-top:0"><b>{{ flags|length }} fact{{ 's' if flags|length != 1 }} to check.</b> An automatic check found a quote that doesn't back its fact. Flags never change a result; they ask a person to confirm or correct the fact on its page.</p>
+      <ul class="facts">{% for f in flags %}<li><span class="f">{{ f.doc_id }} · {{ f.field }}</span><a href="{{ page_url(ef.source_file, f.page, s.patient_key) }}#fact-{{ f.doc_id }}-{{ f.field }}">p.{{ f.page }}</a> {{ f.message }}</li>{% endfor %}</ul>
+    {% else %}<p class="small muted" style="margin:0">No open fact flags.</p>{% endif %}
+    {% if reviews %}
+      <h4 style="margin:12px 0 4px">Reviews recorded</h4>
+      <ul class="facts">{% for r in reviews|reverse %}<li><span class="f">{{ r.review_id }} · {{ r.doc_id }} · {{ r.field }}</span>{% if r.action == 'correct' %}<b>corrected</b> to <code>{{ r.value }}</code> (“{{ r.quote_text }}”, p.{{ r.quote_page }}){% else %}<b>confirmed</b>{% endif %} by {{ r.actor_name }} ({{ r.actor_role }}){% if r.reason %}: {{ r.reason }}{% endif %} <span class="muted">{{ r.recorded_at }}</span></li>{% endfor %}</ul>
+      <p class="disclose">Corrections are stored apart from the extraction. The facts above already include them; the source file is unchanged.</p>
+    {% endif %}
   </div>
 
   <h3 class="section-title">Identifiers as each page states them</h3>
@@ -87,6 +100,8 @@
   {{ lens(2) }}
 
   <div class="grid g3">
+    {% set clin_view = persona_of(request) and persona_of(request).clinical %}
+    {% if clin_view %}<div class="card"><h3>Plan &amp; coverage</h3><p class="small muted">Hidden for clinical roles: payer, coverage and PA never affect clinical priority. The holds below still show every gate.</p></div>{% else %}
     <div class="card">
       <h3>Plan &amp; PA requirement</h3>
       <p>{{ st(s.pa_requirement) }} {% if s.plan.detail.plan_id %}<code>{{ s.plan.detail.plan_id }}</code>{% endif %}{% for x in s.plan.detail.extra or [] %} <span class="tag">+ {{ x }}</span>{% endfor %}</p>
@@ -94,6 +109,7 @@
       <p class="small">{{ s.plan.reason_text }}</p>
       {% if s.plan.status == 'unknown' %}<p class="small muted">Product is never inferred from a member-ID prefix.</p>{% endif %}
     </div>
+    {% endif %}
     <div class="card">
       <h3>Identity (ID-1)</h3>
       <p>{{ st(s.identity.status) }}</p>
@@ -109,6 +125,7 @@
         <div class="recall id-warning">⚠ Confirmed {{ x.field }} <b class="mono">{{ x.value }}</b> (Epic ref {{ x.epic_reference }}, <span class="sim-badge">SIMULATED</span> {{ x.event_id }}) is not found in packet: it matches no value on any page. Accepted because Epic is the authority; check it was keyed correctly.</div>
       {% endfor %}
     </div>
+    {% if not clin_view %}
     <div class="card">
       <h3>Coverage (COV-1)</h3>
       <p>{{ st(s.coverage.status) }} {% if s.coverage.reason_code %}<code>{{ s.coverage.reason_code }}</code>{% endif %}</p>
@@ -116,6 +133,7 @@
       <p class="small">{% for r in s.coverage.evidence_refs %}{{ ref_link(r, s.patient_key) }} {% endfor %}</p>
       <p class="small muted">Only a dated benefits response for the exact product, inside the 30-day window, can verify coverage. A card or face sheet cannot.</p>
     </div>
+    {% endif %}
   </div>
 
   <div class="lanes">
@@ -200,12 +218,12 @@
     <div class="card" id="handoffs">
       <h3>Handoffs · Epic and payer stubs</h3>
       <div class="buttons">
-        <form method="post" action="/case/{{ s.patient_key }}/handoff/schedule"><button class="green">Send to scheduling</button></form>
-        <form method="post" action="/case/{{ s.patient_key }}/handoff/pa_packet"><button class="secondary">Prepare PA packet</button></form>
-        <form method="post" action="/case/{{ s.patient_key }}/handoff/missing_info"><button class="secondary">Send missing-info request</button></form>
-        <form method="post" action="/case/{{ s.patient_key }}/handoff/triage"><button class="secondary">Notify triage</button></form>
-        <form method="post" action="/case/{{ s.patient_key }}/handoff/identity_task"><button class="secondary">Identity verification task</button></form>
+        {% set me = persona_of(request) %}
+        {% for kind, text, cls in [('schedule','Send to scheduling','green'), ('pa_packet','Prepare PA packet','secondary'), ('missing_info','Send missing-info request','secondary'), ('triage','Notify triage','secondary'), ('identity_task','Identity verification task','secondary'), ('clinician_review','Send for clinician review','secondary')] %}
+        {% if may_send(me, kind) %}<form method="post" action="/case/{{ s.patient_key }}/handoff/{{ kind }}"><button class="{{ cls }}">{{ text }}</button></form>{% endif %}
+        {% endfor %}
       </div>
+      {% if me %}<p class="small muted" style="margin:8px 0 0">Showing the handoffs a {{ me.role }} sends. Sent as {{ persona_label(me) }}.</p>{% endif %}
       <p class="small muted" style="margin:8px 0 0">"Send to scheduling" is always clickable. If a gate fails, the attempt is blocked and audited.</p>
       {% if active_sched %}<p class="small">Active scheduling handoff: <a href="/outbox/{{ active_sched.handoff_id }}">{{ active_sched.handoff_id }}</a></p>{% endif %}
       {% for r in recalls %}
@@ -218,25 +236,34 @@
   <section class="simulate" id="simulate">
     <h3>Simulate a human decision <span class="sim-badge">SIMULATED – not from source PDFs</span></h3>
     <p class="small" style="margin:0">Each control records a labelled event (separate, append-only table) with role, time and an audit entry. Events never change PDF evidence, and the engine never creates them.</p>
+    {% set me = persona_of(request) %}
+    {% if me %}<p class="small persona-note">Recording as {{ persona_label(me) }}. Only the decisions this role records are shown; the server attributes every event to you.</p>{% endif %}
     <div class="simgrid">
+      {% if may_record(me, "PAYER_PA_DECISION") %}
       <form method="post" action="/case/{{ s.patient_key }}/simulate">
         <input type="hidden" name="type" value="PAYER_PA_DECISION"><h4>Payer PA decision</h4>
         <label>Decision <select name="decision"><option>approved</option><option>pended</option><option>denied</option></select></label>
-        <label>Recorded by <select name="actor_role">{% for r in roles.PAYER_PA_DECISION %}<option>{{ r }}</option>{% endfor %}</select></label>
+        {% if not me %}<label>Recorded by <select name="actor_role">{% for r in roles.PAYER_PA_DECISION %}<option>{{ r }}</option>{% endfor %}</select></label>{% endif %}
         <label>Note <input name="note" placeholder="mock payer reference"></label>
         <button>Simulate payer decision</button>
       </form>
+      {% endif %}
+      {% if may_record(me, "CLINICAL_REVIEW_DECISION") %}
       <form method="post" action="/case/{{ s.patient_key }}/simulate">
         <input type="hidden" name="type" value="CLINICAL_REVIEW_DECISION"><h4>Clinical review decision</h4>
         <label>Decision <select name="decision"><option>cleared_for_scheduling</option><option>reviewed_hold</option><option>not_cleared</option></select></label>
+        {% if not me %}
         <label>Role <select name="actor_role">{% for r in roles.CLINICAL_REVIEW_DECISION %}<option>{{ r }}</option>{% endfor %}</select></label>
         <label>Name <input name="actor_name"></label>
+        {% endif %}
         <label>Note <input name="note"></label>
         <button>Simulate clinical decision</button>
       </form>
+      {% endif %}
+      {% if may_record(me, "IDENTITY_RESOLUTION") %}
       <form method="post" action="/case/{{ s.patient_key }}/simulate">
         <input type="hidden" name="type" value="IDENTITY_RESOLUTION"><h4>Identity resolution (Epic)</h4>
-        <input type="hidden" name="actor_role" value="Intake Coordinator">
+        {% if not me %}<input type="hidden" name="actor_role" value="Intake Coordinator">{% endif %}
         <label>Confirmed DOB <input name="confirmed_dob" placeholder="YYYY-MM-DD"></label>
         <label>Confirmed member ID <input name="confirmed_member_id"></label>
         <label>Confirmed name <input name="confirmed_name"></label>
@@ -244,9 +271,11 @@
         <label>Note* <input name="note"></label>
         <button>Simulate identity resolution</button>
       </form>
+      {% endif %}
+      {% if may_record(me, "BENEFITS_RESPONSE") %}
       <form method="post" action="/case/{{ s.patient_key }}/simulate" id="sim-benefits">
         <input type="hidden" name="type" value="BENEFITS_RESPONSE"><h4>New E&amp;B response</h4>
-        <input type="hidden" name="actor_role" value="Insurance Benefits Manager (mock)">
+        {% if not me %}<input type="hidden" name="actor_role" value="Insurance Benefits Manager (mock)">{% endif %}
         {% if form == 'benefits' and msg %}<p class="flash flash-bad small form-error">{{ msg }}</p>{% endif %}
         <label>Response date <input name="response_date" value="{{ policy.eval_date }}" placeholder="YYYY-MM-DD, on or before {{ policy.eval_date }}"></label>
         <label>Payer <input name="payer"></label>
@@ -257,6 +286,7 @@
         <label>Product end date <input name="product_end_date" placeholder="optional"></label>
         <button>Simulate E&amp;B response</button>
       </form>
+      {% endif %}
     </div>
     {% if events %}
     <h4 style="margin:14px 0 6px">Simulated events on this case</h4>

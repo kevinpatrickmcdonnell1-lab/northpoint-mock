@@ -118,6 +118,11 @@
         {
           "field": "signer",
           "page": 2,
+          "text": "Electronically signed by Rohan Devlin, MD"
+        },
+        {
+          "field": "date",
+          "page": 2,
           "text": "09/20/2026"
         }
       ]

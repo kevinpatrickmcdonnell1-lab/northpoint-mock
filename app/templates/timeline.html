@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}{{ key }} · audit timeline{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="/case/{{ key }}">← {{ key }} case</a> · <a href="/case/{{ key }}/timeline.json">Export JSON</a></p>
+<section class="panel-head">
+  <div>
+    <p class="eyebrow">Audit timeline · read-only</p>
+    <h1 class="display" style="font-size:30px;margin:4px 0 6px">{{ key }} <span class="muted" style="font-size:20px">{{ name }}</span></h1>
+    <p class="small" style="margin:0">Every fact load, engine run, human decision, fact review and handoff on this case, oldest first, with who did it. The audit log is append-only (enforced by the database).</p>
+  </div>
+</section>
+
+<div class="card replay {{ 'ok' if replay.matches else ('bad' if replay.matches is sameas false else '') }}" id="replay">
+  <b>Replay check.</b> {{ replay.text }}
+  {% if replay.recorded %}<span class="small mono muted">recorded {{ replay.recorded }} · recomputed {{ replay.recomputed }}{% if replay.recorded_config != replay.current_config %} · config changed{% endif %}</span>{% endif %}
+</div>
+
+<nav class="pills" style="margin:14px 0">
+  <a href="?kind=all" class="{% if kind == 'all' %}active{% endif %}">All <span class="muted">{{ total }}</span></a>
+  {% for k in kinds %}<a href="?kind={{ k }}" class="{% if kind == k %}active{% endif %}">{{ labels.get(k, k) }}</a>{% endfor %}
+</nav>
+
+<ol class="timeline">
+{% for e in entries %}
+  <li data-kind="{{ e.kind }}" class="tl-{{ e.kind }}">
+    <span class="tl-when mono small">{{ e.at }}</span>
+    <span class="tl-what"><b>{{ labels.get(e.kind, e.kind) }}</b>{% if e.kind == 'sim_event' or (e.kind == 'outage') %} <span class="sim-badge">SIMULATED</span>{% endif %}</span>
+    <span class="tl-who small">{{ e.actor }}</span>
+    <span class="tl-detail small">{{ e.summary }}</span>
+  </li>
+{% endfor %}
+</ol>
+{% endblock %}

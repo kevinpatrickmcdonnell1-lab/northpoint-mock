@@ -69,7 +69,8 @@ def standard(key, n, name, dob, product, member, received, *, signed_on, reason,
            "indication_type": indication_type},
           [("procedure", 2, "Separate diagnostic order"),
            ("indication", 2, f"Outpatient stress echocardiogram. Indication: {reason}"),
-           ("signer", 2, f"Date signed {signed_on}")],
+           ("signer", 2, f"Electronically signed by {MERCER}"),
+           ("date", 2, f"Date signed {signed_on}")],
           {**hdr, "packet_id": pkt}, signer=MERCER)
     p.doc("registration_face_sheet", [3], None,
           {"payer": product.split(" Commercial")[0].split(" Medicare")[0].split(" Community")[0],
@@ -145,7 +146,8 @@ def build() -> list[Packet]:
     p.doc("stress_echo_order", [2], "2026-09-20",
           {"procedure": "Stress echocardiogram", "indication": None},
           [("procedure", 2, "DIAGNOSTIC ORDER"), ("procedure", 2, "Stress echocardiogram"),
-           ("signer", 2, "09/20/2026")], a, signer=devlin)
+           ("signer", 2, "Electronically signed by Rohan Devlin, MD"),
+           ("date", 2, "09/20/2026")], a, signer=devlin)
     p.doc("registration_face_sheet", [3], "2026-09-21",
           {"payer": "Summit Crest", "plan_product_raw": "Summit Crest Medicare Advantage",
            "member_id": "SCMA-SYN-71043"},

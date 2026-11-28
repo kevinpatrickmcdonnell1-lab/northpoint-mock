@@ -15,7 +15,12 @@ KINDS = {
     "identity_task": ("identity_verification_task", "Epic intake WQ (MOCK STUB)", "ID"),
     "triage": ("urgent_triage_notification", "Epic In Basket (MOCK STUB)", "TRIAGE"),
     "missing_info": ("missing_info_request", "Fax/Comms (MOCK STUB)", "INFO"),
+    # Not met / payer denied: back to the ordering clinician. Not a payer denial (invariant 8).
+    "clinician_review": ("clinician_review_request", "Fax/Comms (MOCK STUB)", "REVIEW"),
 }
+REVIEW_CODES = {"EVID_NOT_MET", "PA_DENIED"}
+NOT_A_DENIAL = ("Not met means the packet does not yet show what the policy asks for. "
+                "It is not a payer denial.")
 SCHED_TYPE = KINDS["schedule"][0]
 RECALL_TYPE = "scheduling_recall"
 PA_PREP_GATES = ("G-ID", "G-COV", "G-PAREQ", "G-EVID")
@@ -48,7 +53,7 @@ def active_scheduling_handoff(svc: Service, key: str) -> dict | None:
 def send(svc: Service, key: str, kind: str, actor: str = "UI user") -> dict[str, Any]:
     work_type, receiver, tag = KINDS[kind]
     s = svc.state(key)
-    ef = svc.store.case(key)
+    ef = svc.case(key)
     events = svc.store.events(key)
     svc.store.audit(key, wall_clock(), actor, "handoff_attempt", {"kind": work_type})
 
@@ -91,6 +96,19 @@ def send(svc: Service, key: str, kind: str, actor: str = "UI user") -> dict[str,
                     sources=[{"file": r.file, "page": r.page, "quote": r.quote}
                              for r in s.priority.evidence_refs],
                     note="Clinical routing is never gated by admin status.")
+    elif kind == "clinician_review":
+        codes = [a.reason_code for a in s.actions if a.reason_code in REVIEW_CODES]
+        if not codes:
+            return {"result": "not_applicable", "reason": "Nothing is not met or denied on this case."}
+        denial = next((e for e in reversed(events) if e.type == "PAYER_PA_DECISION"
+                       and e.decision == "denied"), None)
+        item.update(reason_codes=codes, statement=NOT_A_DENIAL,
+                    not_met={k: {"reason": v.reason_text,
+                                 "sources": [{"file": r.file, "page": r.page, "quote": r.quote}
+                                             for r in v.evidence_refs]}
+                             for k, v in s.criteria.items() if k != "EVIDENCE" and v.status == "NM"},
+                    payer_denial=({"event_id": denial.event_id, "note": denial.note, "simulated": True}
+                                  if denial and "PA_DENIED" in codes else None))
     elif kind == "missing_info":
         req = [a for a in s.actions if a.reason_code in MISSING_CODES]
         if not req:
@@ -120,6 +138,10 @@ def send(svc: Service, key: str, kind: str, actor: str = "UI user") -> dict[str,
         "evidence_refs": _evidence(s) if kind in ("schedule", "pa_packet") else [],
         "simulated_dependencies": [{"event_id": e.event_id, "type": e.type, "decision": e.decision,
                                     "simulated": True} for e in events],
+        # Human corrections the receiving team should know the facts went through.
+        "fact_corrections": [{"review_id": r.review_id, "doc_id": r.doc_id, "field": r.field,
+                              "value": r.value, "page": r.quote_page, "by": r.actor_role}
+                             for r in svc.store.reviews(key) if r.action == "correct"],
         "policy_version": s.policy_version, "eval_date": str(s.eval_date), "status": "recorded",
         "label": "SYNTHETIC – MOCK DATA",
     }
@@ -154,7 +176,7 @@ def recall_if_needed(svc: Service, key: str, actor: str = "system (automatic rec
         return None
     failing = [g.gate for g in s.gates if not g.passed]
     reasons = [a.reason_code for a in s.actions]
-    ef = svc.store.case(key)
+    ef = svc.case(key)
     n = svc.store.outbox_count(key, RECALL_TYPE) + 1
     item = {"type": RECALL_TYPE, "packet_id": ef.packet_id, "mrn": active["work_item"].get("mrn"),
             "original_handoff_id": active["handoff_id"], "failing_gates": failing,
@@ -264,4 +286,4 @@ def set_outage(svc: Service, receiving_system: str, down: bool, actor: str = "UI
                     {"receiving_system": receiving_system, "down": down, "simulated": True})
 
 
-RECEIVERS = [v[1] for v in KINDS.values()]
+RECEIVERS = list(dict.fromkeys(v[1] for v in KINDS.values()))   # each receiving system once
