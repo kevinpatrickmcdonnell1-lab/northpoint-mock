@@ -265,6 +265,7 @@ Aligns the mock with the interview brief's requirements R1–R10 (see `docs/requ
 - **Verified:** `tests/test_claims.py` (9 tests), plus a case-page test in `test_personas.py`.
 
 ## Verification summary
+- **After the persona demo script (2026-11-27):** `make test`: 463 tests (46 new in `tests/test_demo_script_personas.py`, which drives `docs/demo_script_personas.md` over HTTP with the persona cookie). Judgment calls: R01 is resolved to DOB 1958-06-12 as a scripted Intake decision, never inferred by the engine; the payer-record correction is said aloud as not modelled; `blocked_attempts` counts every `handoff_blocked` audit row, so the run shows 1. Both golden tables unchanged.
 - **After personas step 3, claims and the clinical case view (2026-11-27):** `make test`: 417 tests (22 new). Both golden tables unchanged.
 - **After personas step 2 (2026-11-27):** `make test`: 395 tests (14 new panel tests). Both golden tables unchanged.
 - **After personas step 1 (2026-11-27):** `make test`: 381 tests (17 new: 16 persona + 1 title regression). Both golden tables unchanged.
